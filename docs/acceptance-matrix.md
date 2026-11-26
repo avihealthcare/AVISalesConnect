@@ -71,3 +71,7 @@ Opportunity pipeline increment, 2026-11-25. The database test exercises authoriz
 ### Expanded pilot verification
 
 Local browser acceptance covers email/password staff and administrator sign-in and invitation setup. The expanded migration and workflow tests cover catalogue deduplication and version conflicts, single open attendance and exception status, tender approval/version separation and submission, and travel/claim approval, reimbursement and reconciliation. CSV import uses row validation and same-member replay protection. Full duplicate merge, offline review/synchronization, scanned live attachments, invoice synchronization, automated alerts and approved live integrations remain open.
+
+### Lead Management workflow extension
+
+The lead data tests now cover source and stage configuration, idempotent itemized capture, inquiry reference uniqueness, assignment and territory routing, notification ownership, atomic bulk changes, permission and tenant scope, first-response escalation, lost and reopened leads, matching, merge provenance, and authorized export. Browser tests exercise the lead dialog, linked customers, list, pipeline, product and activity details, and CSV intake. External provider ingestion and live private attachment scanning are still pending.

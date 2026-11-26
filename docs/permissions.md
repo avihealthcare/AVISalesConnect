@@ -52,3 +52,7 @@ The organization's Super Administrator can read and save expense policy and tend
 ### Pilot sales and field modules
 
 The Super Administrator receives the pilot workspace permissions. The separate delegable Field Sales role grants own attendance, visits, planning and tasks, scoped CRM reads, visible parent site/contact access, and read access to the product catalogue. Each workspace command requires an active member with its module permission and validates parent access. GPS events and personal sales targets are scoped to their owner. Tenders and expenses additionally use independently assigned approval routes, which enforce actor separation in their command handlers.
+
+### Lead Management
+
+Intake staff retain own-record creation and write access through their existing lead grants. Team, territory and explicit share grants provide read access. Lead managers can assign and review duplicates across their organization. Reopening and detailed export use separate permissions. Super Administrators receive the workflow, export, and settings permissions. Lead notifications go to the affected memberships and the response queue only displays records the viewer can read. Private documents retain the existing independently scoped file permissions.

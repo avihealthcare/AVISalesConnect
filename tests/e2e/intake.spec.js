@@ -43,17 +43,49 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
     await expect(page.getByRole('button', { name: 'Attachments', exact: true })).toHaveCount(0);
   }
   await open('Leads');
-  await page.getByLabel('Customer or contact name').fill('Synthetic Inquiry');
+  await page.getByRole('button',{name:/Add New Lead/}).click();
+  const editor=page.getByRole('dialog',{name:'Add New Lead'});
+  await editor.getByLabel('Hospital or organisation name').fill('Synthetic Inquiry');
+  await editor.getByLabel('Lead source').selectOption('indiamart');
+  await editor.getByLabel('External inquiry reference').fill('SYN-2026-0001');
   const localReceiptTime = await page.evaluate(() => {
     const earlier = new Date(Date.now() - 60_000);
     return new Date(earlier.getTime() - earlier.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
   });
   await page.getByLabel('Received at').fill(localReceiptTime);
-  await page.getByLabel('Phone number or email').fill('inquiry@example.invalid');
-  await page.getByLabel('Link a visible customer').selectOption({ label: 'Synthetic Hospital' });
-  await page.getByRole('button', { name: 'Save lead' }).click();
-  await expect(page.getByText('Synthetic Inquiry', { exact: true })).toBeVisible();
+  await editor.getByLabel('Email address').fill('inquiry@example.invalid');
+  await editor.getByLabel('Lead priority').selectOption('Hot');
   if (info.project.name === 'desktop') {
+    await editor.getByLabel('Current sales stage').selectOption('demo_requested');
+    await editor.getByLabel('Next action').fill('Confirm the demonstration date');
+    for (const [model,quantity,price] of [['Synthetic warmer','2','2000.50'],['Synthetic monitor','3','500.00']]) {
+      await editor.getByRole('button',{name:'Add product',exact:true}).click();
+      const product=editor.getByRole('group',{name:model.includes('warmer')?'Product 1':'Product 2'});
+      await product.getByLabel('Product category').fill('Synthetic category');
+      await product.getByLabel('Product model').fill(model);
+      await product.getByLabel('Required quantity').fill(quantity);
+      await product.getByLabel('Estimated unit price (INR)').fill(price);
+    }
+  }
+  await page.getByLabel('Link a visible customer').selectOption({ label: 'Synthetic Hospital' });
+  await editor.getByRole('button', { name: 'Create Lead',exact:true }).click();
+  await expect(page.getByRole('heading',{name:'Synthetic Inquiry',exact:true})).toBeVisible();
+  if (info.project.name === 'desktop') {
+    await page.getByRole('button',{name:'Products and Requirements',exact:true}).click();
+    await expect(page.getByRole('cell',{name:'Synthetic warmer',exact:true})).toBeVisible();
+    await expect(page.getByRole('cell',{name:'Synthetic monitor',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Activity Timeline',exact:true}).click();
+    await page.getByRole('button',{name:'Log Activity',exact:true}).click();
+    await page.getByLabel('Activity type').selectOption('Call');
+    await page.getByLabel('Activity summary').fill('Synthetic response to inquiry');
+    await page.getByRole('button',{name:'Save Activity',exact:true}).click();
+    await expect(page.getByText('Synthetic response to inquiry')).toBeVisible();
+  }
+  await page.getByRole('button',{name:'Back to leads',exact:false}).click();
+  if (info.project.name === 'desktop') {
+    await page.getByRole('button',{name:'Kanban Pipeline',exact:true}).click();
+    await expect(page.getByRole('region',{name:'Demonstration Requested'}).getByText('Synthetic Inquiry')).toBeVisible();
+    await page.getByRole('button',{name:'Table',exact:true}).click();
     await page.getByText('Import leads from CSV', { exact: true }).click();
     await page.getByLabel('CSV file').setInputFiles({
       name: 'synthetic.csv', mimeType: 'text/csv',
@@ -64,7 +96,7 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
     await expect(page.getByText('1 CSV row saved or matched to your earlier import.')).toBeVisible();
     await expect(page.getByText('Two, quoted items')).toBeVisible();
     await open('Reports');
-    await expect(page.getByRole('row', { name: 'CSV 1' })).toBeVisible();
+    await expect(page.getByRole('row', { name: 'CSV import 1' })).toBeVisible();
   }
   await page.getByLabel('Search hospitals and leads').fill('Synthetic Hospital');
   await page.getByRole('button', { name: 'Search', exact: true }).click();

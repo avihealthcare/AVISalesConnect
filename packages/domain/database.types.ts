@@ -115,6 +115,31 @@ export type Database = {
           resource_type: string | null
           row_version: number
           source: string
+          alternate_mobile: string | null
+          budget: number | null
+          city: string | null
+          competitor: string | null
+          contact_person: string | null
+          country: string | null
+          created_by: string | null
+          customer_type: string | null
+          description: string | null
+          designation: string | null
+          email: string | null
+          expected_purchase_on: string | null
+          expected_value: number | null
+          external_reference: string | null
+          loss_reason: string | null
+          merged_into: string | null
+          product_revision: number
+          mobile: string | null
+          priority: string
+          probability: number | null
+          sales_stage: string
+          source_key: string
+          state: string | null
+          updated_at: string | null
+          updated_by: string | null
         }
         Insert: {
           account_id?: string | null
@@ -136,6 +161,31 @@ export type Database = {
           resource_type?: never
           row_version?: number
           source: string
+          alternate_mobile?: string | null
+          budget?: number | null
+          city?: string | null
+          competitor?: string | null
+          contact_person?: string | null
+          country?: string | null
+          created_by?: string | null
+          customer_type?: string | null
+          description?: string | null
+          designation?: string | null
+          email?: string | null
+          expected_purchase_on?: string | null
+          expected_value?: number | null
+          external_reference?: string | null
+          loss_reason?: string | null
+          merged_into?: string | null
+          product_revision?: number
+          mobile?: string | null
+          priority?: string
+          probability?: number | null
+          sales_stage?: string
+          source_key?: string
+          state?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
         }
         Update: {
           account_id?: string | null
@@ -157,6 +207,31 @@ export type Database = {
           resource_type?: never
           row_version?: number
           source?: string
+          alternate_mobile?: string | null
+          budget?: number | null
+          city?: string | null
+          competitor?: string | null
+          contact_person?: string | null
+          country?: string | null
+          created_by?: string | null
+          customer_type?: string | null
+          description?: string | null
+          designation?: string | null
+          email?: string | null
+          expected_purchase_on?: string | null
+          expected_value?: number | null
+          external_reference?: string | null
+          loss_reason?: string | null
+          merged_into?: string | null
+          product_revision?: number
+          mobile?: string | null
+          priority?: string
+          probability?: number | null
+          sales_stage?: string
+          source_key?: string
+          state?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
         }
         Relationships: [
           {
@@ -503,6 +578,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      read_lead_management: {
+        Args: { p_org: string; p_query?: Json; p_id?: string };
+        Returns: Json;
+      };
+      command_lead_management: {
+        Args: { p_org: string; p_action: string; p_key: string; p_input: Json };
+        Returns: Json;
+      };
       read_sales_field: {
         Args: { p_org: string; p_kind: string; p_offset?: number };
         Returns: Json;

@@ -4,7 +4,7 @@ import type { Database, Json } from '../../../packages/domain/database.types';
 import { StaffAdministration } from './StaffAdministration';
 import { RecordFiles } from './RecordFiles';
 import { PolicySettings } from './PolicySettings';
-import { LeadImport } from './LeadImport';
+import { LeadWorkspace } from './LeadWorkspace';
 import { Reports } from './Reports';
 import { Tenders } from './Tenders';
 import { Expenses } from './Expenses';
@@ -16,21 +16,13 @@ type Screen = 'home' | 'accounts' | 'leads' | 'opportunities' | 'administration'
 type LeadView = 'all' | 'active' | 'overdue';
 type RecordOwner = { resources: { owner_membership_id: string | null } | null };
 type Account = { id: string; name: string; account_type: string } & RecordOwner;
-type Lead = { id: string; display_number: number; prospect_name: string; source: string; received_at: string; lifecycle: string; contact_route: string | null; requirement_text: string | null; account_id: string | null; row_version: number; next_action: string | null; next_action_due_at: string | null } & RecordOwner;
 type OrganizationMembership = { id: string; organization_id: string; organizations: { name: string } | null };
-const manualSources = ['Telephone', 'Email', 'WhatsApp', 'Website', 'Referral', 'Event', 'Other'];
-const leadSources = [...manualSources, 'CSV', 'IndiaMART'];
-const timestamp = new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
 
-function IntakeList({ db, organization, membership, screen, initialName, initialView, canImport }: {
-  db: SupabaseClient<Database>; organization: string; membership?: string;
-  screen: 'accounts' | 'leads' | 'distributors'; initialName: string; initialView: LeadView; canImport?: boolean;
+function Accounts({ db, organization, membership, distributors, initialName }: {
+  db: SupabaseClient<Database>; organization: string; membership?: string; distributors: boolean; initialName: string;
 }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [filter, setFilter] = useState('');
-  const [nameFilter, setNameFilter] = useState(initialName);
-  const [leadView, setLeadView] = useState(initialView);
+  const [search, setSearch] = useState(initialName);
   const [page, setPage] = useState(0);
   const [more, setMore] = useState(false);
   const [revision, refresh] = useState(0);
@@ -39,144 +31,77 @@ function IntakeList({ db, organization, membership, screen, initialName, initial
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [grants,setGrants] = useState<string[]>([]);
   const pending = useRef<{ key: string; body: string } | null>(null);
-  const isLead = screen === 'leads';
-  const isDistributor = screen === 'distributors';
-  const [fileActions, setFileActions] = useState<string[]>([]);
 
   useEffect(() => {
     let current = true;
     void db.from('role_permissions').select('permission_code').eq('organization_id', organization)
-      .in('permission_code', ['file.stage', 'file.download']).then(result => {
-        if (current) setFileActions((result.data ?? []).map(row => row.permission_code));
+      .in('permission_code',['account.create','file.stage','file.download']).then(result => {
+        if (current) setGrants((result.data ?? []).map(row => row.permission_code));
       });
     return () => { current = false; };
-  }, [db, organization]);
-  const canUploadFiles = fileActions.includes('file.stage');
+  },[db,organization]);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setLoadError(false);
-    (async () => {
-      if (!isLead) {
-        let query = db.from('accounts').select('id,name,account_type,resources(owner_membership_id)').eq('organization_id', organization);
-        if (isDistributor) query = query.eq('account_type', 'Distributor');
-        if (nameFilter) query = query.ilike('name', containsTerm(nameFilter));
-        const result = await query.order('name').order('id').range(page * 25, page * 25 + 25);
-        if (!active) return;
-        setAccounts((result.data ?? []).slice(0, 25));
-        setMore((result.data?.length ?? 0) > 25);
-        setLoadError(Boolean(result.error));
-      } else {
-        let query = db.from('leads').select('id,display_number,prospect_name,source,received_at,lifecycle,contact_route,requirement_text,account_id,row_version,next_action,next_action_due_at,resources(owner_membership_id)')
-          .eq('organization_id', organization);
-        if (filter) query = query.eq('source', filter);
-        if (nameFilter) query = query.ilike('prospect_name', containsTerm(nameFilter));
-        if (leadView !== 'all') query = query.not('lifecycle', 'in', '(Converted,Disqualified)');
-        if (leadView === 'overdue') query = query.lt('next_action_due_at', new Date().toISOString());
-        const [result, links] = await Promise.all([
-          query.order('received_at', { ascending: false }).order('id').range(page * 25, page * 25 + 25),
-          db.from('accounts').select('id,name,account_type,resources(owner_membership_id)').eq('organization_id', organization).order('name').limit(100)
-        ]);
-        if (!active) return;
-        setLeads((result.data ?? []).slice(0, 25));
-        setMore((result.data?.length ?? 0) > 25);
-        setAccounts(links.data ?? []);
-        setLoadError(Boolean(result.error || links.error));
-      }
-      setLoading(false);
-    })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
-    return () => { active = false; };
-  }, [db, organization, isLead, isDistributor, filter, nameFilter, leadView, page, revision]);
+    setLoading(true);setLoadError(false);
+    let query = db.from('accounts').select('id,name,account_type,resources(owner_membership_id)').eq('organization_id',organization);
+    if (distributors) query = query.eq('account_type','Distributor');
+    if (search) query = query.ilike('name',containsTerm(search));
+    void query.order('name').order('id').range(page*25,page*25+25).then(result => {
+      if (!active) return;
+      setAccounts((result.data ?? []).slice(0,25));setMore((result.data?.length ?? 0)>25);
+      setLoadError(Boolean(result.error));setLoading(false);
+    });
+    return () => { active=false; };
+  },[db,organization,distributors,search,page,revision]);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
-    const form = event.currentTarget;
-    const values = new FormData(form);
-    const field = (name: string) => String(values.get(name) ?? '').trim();
-    setError('');
-    setSaved(false);
-    const received = isLead ? new Date(field('received_at')) : null;
-    if (received && (!Number.isFinite(received.valueOf()) || received.valueOf() > Date.now())) {
-      setError('Enter a receipt time in the past.');
-      return;
-    }
-    if (isLead && !field('contact_route') && !field('missing_contact_reason')) {
-      setError('Enter a phone number or email, or explain why contact details are missing.');
-      return;
-    }
-    const input = isLead ? {
-      prospect_name: field('prospect_name'), source: field('source'), received_at: received!.toISOString(),
-      contact_route: field('contact_route') || null, missing_contact_reason: field('missing_contact_reason') || null,
-      requirement_text: field('requirement_text') || null, account_id: field('account_id') || null
-    } : { name: field('name'), account_type: isDistributor ? 'Distributor' : field('account_type') };
-    const body = JSON.stringify(input);
-    if (pending.current?.body !== body) pending.current = { body, key: crypto.randomUUID() };
-    setBusy(true);
+    const form=event.currentTarget, values=new FormData(form);
+    const input={name:String(values.get('name') ?? '').trim(),account_type:distributors?'Distributor':String(values.get('account_type') ?? '')};
+    const body=JSON.stringify(input);
+    if (pending.current?.body!==body) pending.current={body,key:crypto.randomUUID()};
+    setBusy(true);setError('');setSaved(false);
     try {
-      const result = await db.rpc('create_intake_record', { p_org: organization, p_key: pending.current.key, p_kind: isLead ? 'lead' : 'account', p_input: input });
+      const result=await db.rpc('create_intake_record',{p_org:organization,p_key:pending.current.key,p_kind:'account',p_input:input});
       if (result.error) {
-        if (result.error.code === '42501') setError('You do not have permission to create this record or use the selected customer.');
-        else if (['23502', '23514', '22023', '22007'].includes(result.error.code)) setError('Review the name, source, receipt time, and contact details, then try again.');
-        else setError('Unable to confirm the save. Retry with the same entries to avoid creating a duplicate.');
+        setError(result.error.code==='42501'?'You do not have permission to create this customer.':
+          ['23502','23514','22023'].includes(result.error.code)?'Review the name and customer type.':'Unable to confirm the save. Retry with the same entries.');
         return;
       }
-      pending.current = null;
-      form.reset();
-      setSaved(true);
-      setPage(0);
-      setFilter('');
-      refresh(value => value + 1);
-    } catch {
-      setError('Unable to confirm the save. Retry with the same entries to avoid creating a duplicate.');
-    } finally { setBusy(false); }
+      pending.current=null;form.reset();setSaved(true);setPage(0);refresh(value=>value+1);
+    } catch {setError('Unable to confirm the save. Retry with the same entries.');}
+    finally {setBusy(false);}
   }
 
-  return <>
-    {isLead && canImport && <LeadImport db={db} organization={organization} onSaved={() => { setPage(0); refresh(value => value + 1); }} />}
-    <div className="workspace-grid">
-    <section className="panel" aria-labelledby="create-title">
-      <h2 id="create-title">{isLead ? 'Capture a lead' : isDistributor ? 'Add a distributor' : 'Add a customer'}</h2>
+  return <div className="workspace-grid">
+    {grants.includes('account.create') && <section className="panel">
+      <h2>{distributors?'Add a distributor':'Add a customer'}</h2>
       <form onSubmit={create}>
-        {isLead ? <>
-          <label htmlFor="prospect_name">Customer or contact name</label><input id="prospect_name" name="prospect_name" required maxLength={200} />
-          <label htmlFor="source">Source</label><select id="source" name="source">{manualSources.map(source => <option key={source}>{source}</option>)}</select>
-          <label htmlFor="received_at">Received at (your device’s local time)</label><input id="received_at" name="received_at" type="datetime-local" required />
-          <label htmlFor="contact_route">Phone number or email</label><input id="contact_route" name="contact_route" maxLength={254} placeholder="+919876543210 or name@example.com" />
-          <label htmlFor="missing_contact_reason">Reason, if contact details are missing</label><input id="missing_contact_reason" name="missing_contact_reason" maxLength={500} />
-          <label htmlFor="account_id">Link a visible customer (optional)</label><select id="account_id" name="account_id"><option value="">No linked customer</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select>
-          <label htmlFor="requirement_text">Requirement or original message</label><textarea id="requirement_text" name="requirement_text" maxLength={10000} rows={3} />
-        </> : <>
-          <label htmlFor="name">Customer name</label><input id="name" name="name" required maxLength={200} />
-          {!isDistributor && <><label htmlFor="account_type">Customer type</label><select id="account_type" name="account_type">{['Hospital','Institution','Distributor','Other'].map(type => <option key={type}>{type}</option>)}</select></>}
-        </>}
-        <button disabled={busy}>{busy ? 'Saving…' : (isLead ? 'Save lead' : isDistributor ? 'Save distributor' : 'Save customer')}</button>
+        <label>Customer name<input name="name" required maxLength={200} /></label>
+        {!distributors && <label>Customer type<select name="account_type">
+          {['Hospital','Institution','Distributor','Other'].map(type=><option key={type}>{type}</option>)}
+        </select></label>}
+        <button disabled={busy}>{busy?'Saving…':distributors?'Save distributor':'Save customer'}</button>
       </form>
       {saved && <p role="status">Record saved.</p>}
       {error && <p role="alert" className="error">{error}</p>}
+    </section>}
+    <section className="panel">
+      <h2>{distributors?'Distributors':'Customers'}</h2>
+      <label>Search by name<input value={search} maxLength={140} onChange={event=>{setSearch(event.target.value);setPage(0);}} /></label>
+      {loading ? <p role="status">Loading records…</p> : loadError ? <p role="alert">Unable to load records. <button className="link" onClick={()=>refresh(value=>value+1)}>Retry</button></p>
+        : accounts.length ? <ul className="records">{accounts.map(account=><li key={account.id}><strong>{account.name}</strong><p>{account.account_type}</p>
+          {membership && account.resources?.owner_membership_id===membership && (grants.includes('file.stage')||grants.includes('file.download')) &&
+            <RecordFiles db={db} organization={organization} record={account.id} canUpload={grants.includes('file.stage')} />}
+        </li>)}</ul> : <p>{distributors?'No distributors are visible.':'No customers are visible.'}</p>}
+      {!loading && !loadError && (page>0||more) && <div><button className="secondary" disabled={!page} onClick={()=>setPage(value=>value-1)}>Previous</button>
+        <button className="secondary" disabled={!more} onClick={()=>setPage(value=>value+1)}>Next</button></div>}
     </section>
-    <section className="panel" aria-labelledby="list-title">
-      <h2 id="list-title">{isLead ? 'Leads' : isDistributor ? 'Distributors' : 'Customers'}</h2>
-      <label htmlFor="record-name-filter">Search by name</label>
-      <input id="record-name-filter" value={nameFilter} maxLength={140}
-        onChange={event => { setNameFilter(event.target.value); setPage(0); }} />
-      {isLead && <label>Lead view<select value={leadView} onChange={event => { setLeadView(event.target.value as LeadView); setPage(0); }}>
-        <option value="all">All leads</option><option value="active">Active leads</option><option value="overdue">Overdue follow-ups</option>
-      </select></label>}
-      {isLead && <><label htmlFor="source-filter">Filter by source</label><select id="source-filter" value={filter} onChange={e => { setFilter(e.target.value); setPage(0); }}><option value="">All sources</option>{leadSources.map(source => <option key={source}>{source}</option>)}</select></>}
-      {loading ? <p role="status">Loading records…</p> : loadError ? <p role="alert">Unable to load records. <button className="link" onClick={() => refresh(value => value + 1)}>Retry</button></p> : isLead ? (
-        leads.length ? <ul className="records">{leads.map(lead => <li key={lead.id}><strong>{lead.prospect_name}</strong><p>Lead {lead.display_number} · {lead.source} · {lead.lifecycle}</p><p>{timestamp.format(new Date(lead.received_at))} IST</p>{lead.contact_route && <p>{lead.contact_route}</p>}{lead.requirement_text && <p className="requirement">{lead.requirement_text}</p>}{lead.next_action && <p>Next action: {lead.next_action}{lead.next_action_due_at && ` · ${timestamp.format(new Date(lead.next_action_due_at))} IST`}</p>}
-        <LeadFollowUp db={db} organization={organization} lead={lead} refresh={() => refresh(value => value + 1)} />
-        {membership && lead.resources?.owner_membership_id === membership && fileActions.length > 0 && <RecordFiles db={db} organization={organization} record={lead.id} canUpload={canUploadFiles} />}
-        </li>)}</ul> : <p>No leads are visible for this selection.</p>
-      ) : accounts.length ? <ul className="records">{accounts.map(account => <li key={account.id}><strong>{account.name}</strong><p>{account.account_type}</p>
-        {membership && account.resources?.owner_membership_id === membership && fileActions.length > 0 && <RecordFiles db={db} organization={organization} record={account.id} canUpload={canUploadFiles} />}
-        </li>)}</ul> : <p>{isDistributor ? 'No distributors are visible.' : 'No customers are visible.'}</p>}
-      {!loading && !loadError && (page > 0 || more) && <div><button className="secondary" disabled={!page} onClick={() => setPage(value => value - 1)}>Previous</button><button className="secondary" disabled={!more} onClick={() => setPage(value => value + 1)}>Next</button></div>}
-    </section>
-  </div></>;
+  </div>;
 }
 
 const navigation: { id: Screen; label: string; permission?: string; salesField?: boolean }[] = [
@@ -298,99 +223,16 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
         {selected?.salesField && selected.permission && permissions?.has(selected.permission)
           && <SalesField key={organization + screen} db={db} organization={organization} kind={screen as SalesFieldKind} />}
         {screen === 'opportunities' && <><h1>{title}</h1><OpportunityList key={organization} db={db} organization={organization} /></>}
-        {(screen === 'accounts' || screen === 'leads' || screen === 'distributors') && <>
-          <h1>{screen === 'leads' ? 'Hospital & Institutional Leads' : title}</h1>
-          <IntakeList key={organization + screen + initialName + initialView} db={db} organization={organization}
-            membership={current?.id} canImport={permissions?.has('lead.create')} screen={screen} initialName={initialName} initialView={initialView} />
+        {screen === 'leads' && permissions?.has('lead.read') && <LeadWorkspace
+          key={organization+initialName+initialView} db={db} organization={organization} initialName={initialName} initialView={initialView} />}
+        {(screen === 'accounts' || screen === 'distributors') && <>
+          <h1>{title}</h1><Accounts key={organization+screen+initialName} db={db} organization={organization}
+            membership={current?.id} distributors={screen==='distributors'} initialName={initialName} />
         </>}
         </>}
       </main>
     </div>
   </div>;
-}
-
-function LeadFollowUp({ db, organization, lead, refresh }: {
-  db: SupabaseClient<Database>; organization: string; lead: Lead; refresh: () => void;
-}) {
-  const [action, setAction] = useState('contact');
-  const [busy, setBusy] = useState(false);
-  const [message, showMessage] = useState('');
-  const retry = useRef<{ body: string; id: string } | null>(null);
-  const [attempts, setAttempts] = useState<{ id: string; outcome: string; attempted_at: string; notes: string | null }[] | null>(null);
-
-  async function showHistory() {
-    const response = await db.from('lead_contact_attempts').select('id,outcome,attempted_at,notes')
-      .eq('organization_id', organization).eq('lead_id', lead.id).order('attempted_at', { ascending: false }).limit(25);
-    if (response.error) showMessage('Could not load contact history.');
-    else setAttempts(response.data);
-  }
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    const fields = new FormData(event.currentTarget);
-    const read = (name: string) => String(fields.get(name) ?? '').trim();
-    let input: Json = {};
-    if (action === 'contact') input = { outcome: read('outcome'), notes: read('notes') };
-    if (action === 'disqualify') input = { reason: read('reason') };
-    if (action === 'qualify') {
-      const due = new Date(read('due'));
-      if (!Number.isFinite(due.valueOf()) || due.valueOf() <= Date.now()) {
-        showMessage('Choose a future date and time for the next action.');
-        return;
-      }
-      input = { requirement: read('requirement'), next_action: read('next_action'), due_at: due.toISOString() };
-    }
-    const body = JSON.stringify([lead.row_version, action, input]);
-    if (retry.current?.body !== body) retry.current = { body, id: crypto.randomUUID() };
-    setBusy(true);
-    showMessage('');
-    try {
-      const response = await db.rpc('progress_lead', { p_org: organization, p_id: lead.id, p_version: lead.row_version, p_key: retry.current.id, p_action: action, p_input: input });
-      if (response.error) {
-        const errors: Record<string, string> = {
-          '42501': 'You do not have permission for this action.',
-          PT404: 'The lead or customer is no longer available.',
-          PT409: 'The lead changed. Refresh the records before trying again.',
-          PT422: 'This action is unavailable in the current lead status.',
-          '22023': 'Check the required fields and try again.'
-        };
-        showMessage(errors[response.error.code] ?? 'Could not confirm the save. Retry with the same entries.');
-      } else {
-        retry.current = null;
-        refresh();
-      }
-    } catch {
-      showMessage('Could not confirm the save. Retry with the same entries.');
-    } finally { setBusy(false); }
-  }
-
-  const closed = ['Converted', 'Disqualified'].includes(lead.lifecycle);
-  const suffix = lead.id;
-  return <details>
-    <summary>Follow-up and history</summary>
-    <button type="button" className="secondary" onClick={() => void showHistory()}>Load contact history</button>
-    {attempts && (attempts.length ? <ul>{attempts.map(attempt => <li key={attempt.id}>
-      {attempt.outcome} · {timestamp.format(new Date(attempt.attempted_at))} IST{attempt.notes && <p>{attempt.notes}</p>}
-    </li>)}</ul> : <p>No contact attempts recorded.</p>)}
-    {!closed && <form onSubmit={submit}>
-      <label htmlFor={`action-${suffix}`}>Action</label>
-      <select id={`action-${suffix}`} value={action} onChange={event => setAction(event.target.value)} disabled={busy}>
-        <option value="contact">Log contact attempt</option><option value="qualify">Qualify</option>
-        <option value="disqualify">Disqualify</option>
-        {lead.lifecycle === 'Qualified' && lead.account_id && <option value="convert">Convert to opportunity</option>}
-      </select>
-      {action === 'contact' && <><label htmlFor={`outcome-${suffix}`}>Outcome</label><select id={`outcome-${suffix}`} name="outcome"><option>No answer</option><option>Reached</option><option>Invalid contact</option></select>
-        <label htmlFor={`notes-${suffix}`}>Notes</label><textarea id={`notes-${suffix}`} name="notes" maxLength={2000} /></>}
-      {action === 'qualify' && <><label htmlFor={`requirement-${suffix}`}>Requirement</label><textarea id={`requirement-${suffix}`} name="requirement" defaultValue={lead.requirement_text ?? ''} required maxLength={10000} />
-        <label htmlFor={`next-${suffix}`}>Next action</label><input id={`next-${suffix}`} name="next_action" defaultValue={lead.next_action ?? ''} required maxLength={500} />
-        <label htmlFor={`due-${suffix}`}>Due (your device’s local time)</label><input id={`due-${suffix}`} name="due" type="datetime-local" required /></>}
-      {action === 'disqualify' && <><label htmlFor={`reason-${suffix}`}>Reason</label><textarea id={`reason-${suffix}`} name="reason" required maxLength={1000}/></>}
-      <button disabled={busy}>{busy ? 'Saving…' : 'Save action'}</button>
-    </form>}
-    {message && <p role="alert">{message}</p>}
-    {message.includes('Refresh the records') && <button type="button" className="secondary" onClick={refresh}>Refresh records</button>}
-  </details>;
 }
 
 type Opportunity = {

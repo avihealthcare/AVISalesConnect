@@ -19,26 +19,25 @@ export function Dashboard({ db, organization, permissions, openLeads, openActive
     let current = true;
     const exact = { count: 'exact' as const, head: true };
     void Promise.all([
-      db.from('leads').select('id', exact).eq('organization_id', organization)
-        .not('lifecycle', 'in', '(Converted,Disqualified)'),
+      db.rpc('read_lead_management',{p_org:organization,p_query:{summary:'dashboard'}}),
       db.from('accounts').select('id', exact).eq('organization_id', organization),
       db.from('opportunities').select('id', exact).eq('organization_id', organization).not('stage', 'in', '(Won,Lost)'),
-      db.from('leads').select('id', exact).eq('organization_id', organization)
-        .lt('next_action_due_at', new Date().toISOString()).not('lifecycle', 'in', '(Converted,Disqualified)'),
       Promise.all(stages.map(stage => db.from('opportunities').select('id', exact).eq('organization_id', organization).eq('stage', stage))),
       db.from('leads').select('id,prospect_name,lifecycle,source').eq('organization_id', organization)
         .order('received_at', { ascending: false }).limit(6),
-    ]).then(([leads, accounts, open, overdue, pipeline, recent]) => {
+    ]).then(([leads, accounts, open, pipeline, recent]) => {
       if (!current) return;
-      if ([leads, accounts, open, overdue, ...pipeline, recent].some(result => result.error)) {
+      if ([accounts, open, ...pipeline, recent].some(result => result.error)
+        || (permissions?.has('lead.read') && (leads.error || recent.error))) {
         setError(true);
         return;
       }
-      setSummary({ metrics: [leads, accounts, open, overdue].map(result => result.count ?? 0),
+      const activity = leads.data as {active:number;overdue:number} | null;
+      setSummary({ metrics: [activity?.active ?? 0,accounts.count ?? 0,open.count ?? 0,activity?.overdue ?? 0],
         stages: pipeline.map(result => result.count ?? 0), recent: recent.data ?? [] });
     }).catch(() => { if (current) setError(true); });
     return () => { current = false; };
-  }, [db, organization, revision]);
+  }, [db, organization, revision, permissions]);
 
   const peak = Math.max(1, ...(summary?.stages ?? []));
   const cards = [

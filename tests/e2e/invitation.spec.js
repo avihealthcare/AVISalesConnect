@@ -45,6 +45,35 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await expect(page.getByLabel(/Rate per kilometre/)).toHaveValue('12.50');
 
   const navigation = page.getByRole('navigation', { name: 'SalesConnect' });
+  await navigation.getByRole('button',{name:'Leads',exact:true}).click();
+  await page.getByRole('button',{name:'Lead Settings',exact:true}).click();
+  await page.getByLabel('Display name').fill('Synthetic campaign');
+  await page.getByRole('button',{name:'Add Configuration',exact:true}).click();
+  await expect(page.getByRole('status').getByText('Saved.',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:/Add New Lead/}).click();
+  const editor=page.getByRole('dialog',{name:'Add New Lead'});
+  await editor.getByLabel('Lead source').selectOption('synthetic_campaign');
+  await editor.getByLabel('Hospital or organisation name').fill('Synthetic close and reopen');
+  await editor.getByLabel('Email address').fill('reopen@example.invalid');
+  await editor.getByRole('button',{name:'Create Lead',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Synthetic close and reopen',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Change Stage',exact:true}).click();
+  const changeStage=page.getByRole('dialog',{name:'Change Sales Stage'});
+  await changeStage.getByLabel('Move to stage').selectOption('lost');
+  await changeStage.getByLabel('Lost lead reason').selectOption('price');
+  await changeStage.getByRole('button',{name:'Update Stage',exact:true}).click();
+  await page.getByRole('button',{name:'Reopen Lead',exact:true}).click();
+  const reopen=page.getByRole('dialog',{name:'Reopen Lead'});
+  await reopen.getByLabel('Move to stage').selectOption('contacted');
+  await reopen.getByLabel('Reopening reason').fill('Synthetic customer returned');
+  await reopen.getByRole('button',{name:'Reopen Lead',exact:true}).click();
+  await page.getByRole('button',{name:'Status History',exact:true}).click();
+  await expect(page.getByText('Synthetic customer returned',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:/Back to leads/}).click();
+  const download=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Export Excel',exact:true}).click();
+  expect((await download).suggestedFilename()).toBe('salesconnect-leads.xml');
+
   await navigation.getByRole('button', { name: 'Products', exact: true }).click();
   await page.getByLabel('Model or product name').fill('Synthetic model');
   await page.getByLabel('Product code').fill('SYN-CATALOG-1');

@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../../packages/domain/database.types';
 
-const sources = ['Telephone','Email','WhatsApp','Website','Referral','Event','Other','CSV','IndiaMART'];
 const stages = ['Qualified','Requirement Confirmed','Proposal','Negotiation','Won','Lost'];
 type Row = { label: string; total: number };
 
 function exportCounts(rows: Row[], metric: string) {
-  const content = [`"${metric}",Count`, ...rows.map(({ label, total }) => `"${label}",${total}`)].join('\r\n');
+  const cell = (value: string) => '"' + (/^[\x00-\x20]*[=+\-@]|^[\t\r\n]/.test(value) ? "'" : '') + value.replaceAll('"','""') + '"';
+  const content = [`${cell(metric)},Count`, ...rows.map(({ label, total }) => `${cell(label)},${total}`)].join('\r\n');
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
   link.download = 'salesconnect-report.csv';
@@ -34,14 +34,13 @@ export function Reports({ db, organization, canReadOpportunities }: {
     const exact = { count: 'exact' as const, head: true };
     const start = period.start && `${period.start}T00:00:00+05:30`;
     const end = period.end && `${period.end}T23:59:59.999999+05:30`;
-    const labels = metric === 'source' ? sources : stages;
-    void Promise.all(labels.map(async label => {
-      if (metric === 'source') {
-        let query = db.from('leads').select('id',exact).eq('organization_id',organization).eq('source',label);
-        if (start) query = query.gte('received_at',start);
-        if (end) query = query.lte('received_at',end);
-        return { label, ...(await query) };
-      }
+    if (metric === 'source') {
+      void db.rpc('read_lead_management',{p_org:organization,p_query:{summary:'sources',from:start,through:end}})
+        .then(result => { if (current) { if (result.error) setFailed(true); else setRows(result.data as unknown as Row[]); } },
+          () => { if (current) setFailed(true); });
+      return () => { current=false; };
+    }
+    void Promise.all(stages.map(async label => {
       let query = db.from('opportunities').select('id',exact).eq('organization_id',organization).eq('stage',label);
       if (start) query = query.gte('created_at',start);
       if (end) query = query.lte('created_at',end);

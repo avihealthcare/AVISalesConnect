@@ -231,6 +231,89 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     await fieldWrite('attendance_session','complete','94000000-0000-0000-0000-000000000007',{...attendance,...session});
     assert.equal((await db.query("select public.read_sales_field($1,'attendance_session') as data",[o1]))
       .rows[0].data.rows[0].status,'Pending Review');
+    const leadRead = (query={},id=null,org=o1) => db.query('select public.read_lead_management($1,$2,$3) as result',[org,query,id])
+      .then(result => result.rows[0].result);
+    const leadCommand = (action,input,key=crypto.randomUUID()) =>
+      db.query('select public.command_lead_management($1,$2,$3,$4) as result',[o1,action,key,input]).then(result => result.rows[0].result);
+    await assert.rejects(leadRead({},null,o2),{code:'42501'});
+    const workspace = await leadRead();
+    assert.equal(workspace.catalog.filter(entry => entry.kind==='source').length,15);
+    assert.equal(workspace.catalog.filter(entry => entry.kind==='stage').length,16);
+    const createInput = { fields:{ customer:'Synthetic lead workflow',source:'indiamart',contact:'Synthetic buyer',
+      external_reference:'INQUIRY-001',mobile:'+91 90000 00001',email:'Pilot@Example.invalid',stage:'demo_requested',
+      requirements:'Synthetic equipment',priority:'Hot',next_action:'Confirm demo',value:'4500.25',received_at:'2025-01-01T00:00:00Z' },
+      products:[{category:'Test',model:'Synthetic warmer',quantity:'1',estimated_unit_price:'2500.25'},
+        {category:'Test',model:'Synthetic monitor',quantity:'2',estimated_unit_price:'1000.00'}] };
+    const newLeadKey = crypto.randomUUID();
+    const created = await leadCommand('create',createInput,newLeadKey);
+    assert.match(created.number,/^LD-\d{4}-\d+$/);
+    assert.deepEqual(await leadCommand('create',createInput,newLeadKey),created);
+    await assert.rejects(leadCommand('create',createInput),{code:'23505'});
+    let record = await leadRead({},created.id);
+    assert.equal(record.products.length,2);
+    assert.equal(record.data.sales_stage,'demo_requested');
+    assert.equal(record.data.mobile,'+919000000001');
+    assert.equal((await leadRead({view:'escalated',search:'Synthetic lead workflow'})).total,1);
+    await assert.rejects(leadCommand('stage',{id:created.id,version:1,stage:'lost'}),{code:'22023'});
+    const lost = await leadCommand('stage',{id:created.id,version:1,stage:'lost',loss_reason:'price',competitor:'Synthetic supplier'});
+    await assert.rejects(leadCommand('stage',{id:created.id,version:2,stage:'quote_requested'}),{code:'22023'});
+    const reopened = await leadCommand('reopen',{id:created.id,version:lost.version,stage:'quote_requested',reason:'Customer resumed project'});
+    const activity = await leadCommand('activity',{id:created.id,version:reopened.version,kind:'Call',summary:'Synthetic conversation'});
+    assert.equal((await leadRead({view:'escalated',search:'Synthetic lead workflow'})).total,0);
+    const copy = await leadCommand('create',{fields:{...createInput.fields,external_reference:'INQUIRY-002',routing:'unassigned'},products:[]});
+    record = await leadRead({},created.id);
+    assert.equal(record.duplicates[0].id,copy.id);
+    const merged = await leadCommand('merge',{id:created.id,version:activity.version,other_id:copy.id,other_version:copy.version,reason:'Same original inquiry'});
+    assert.equal(merged.version,activity.version+1);
+    record = await leadRead({},created.id);
+    assert.equal(record.inquiries[0].external_reference,'INQUIRY-002');
+    assert.ok(record.timeline.some(event => event.kind==='Call'));
+    assert.ok(record.timeline.some(event => event.kind==='Merge'));
+    await assert.rejects(leadRead({},copy.id),{code:'PT404'});
+    const exported = await leadCommand('export',{query:{search:'Synthetic lead workflow'},format:'csv'});
+    assert.equal(exported.total,1);
+    await leadCommand('settings',{kind:'source',code:'indiamart',label:'IndiaMART',sort_order:10,active:false});
+    await assert.rejects(leadCommand('create',{...createInput,fields:{...createInput.fields,external_reference:'INQUIRY-003'}}),{code:'22023'});
+    await leadCommand('settings',{kind:'stage',code:'custom_wave',label:'Pilot stage',sort_order:15,behavior:'active',active:true});
+    assert.ok((await leadRead()).catalog.some(entry => entry.code==='custom_wave'));
+    const convertedLead = await leadRead({},leadId);
+    assert.equal(convertedLead.data.lifecycle,'Converted');
+    const continued = await leadCommand('stage',{id:leadId,version:convertedLead.data.row_version,stage:'negotiation'});
+    const continuingLead = await leadRead({},leadId);
+    assert.equal(continuingLead.data.row_version,continued.version);
+    assert.equal(continuingLead.data.sales_stage,'negotiation');
+    assert.equal(continuingLead.data.lifecycle,'Converted','linked opportunities stay intact as the lead advances');
+    await leadCommand('settings',{kind:'territory_create',label:'Synthetic Northeast'});
+    assert.ok((await leadRead()).territories.some(item=>item.name==='Synthetic Northeast'));
+    const territoryFixture = '95000000-0000-0000-0000-000000000001';
+    const salespersonRole = '95000000-0000-0000-0000-000000000002';
+    await db.exec(`reset role;
+      insert into private.territories(id,organization_id,name) values ('${territoryFixture}','${o1}','Synthetic lead territory');
+      insert into private.territory_memberships values ('${o1}','${m3}','${territoryFixture}');
+      insert into public.roles(id,organization_id,code,name) values ('${salespersonRole}','${o1}','lead_test_rep','Synthetic salesperson');
+      insert into public.role_permissions values ('${o1}','${salespersonRole}','lead.read');
+      insert into public.member_roles(organization_id,membership_id,role_id,effective_from)
+        values ('${o1}','${m3}','${salespersonRole}',now());
+      set role authenticated;`);
+    await leadCommand('settings',{kind:'territory',territory:territoryFixture,member:m3});
+    const routed = await leadCommand('create',{fields:{customer:'Synthetic routed lead',source:'website',
+      missing_contact_reason:'Telephone pending',territory:territoryFixture,routing:'territory'}});
+    assert.equal((await leadRead({},routed.id)).owner,m3);
+    assert.ok((await leadRead()).territories.some(t=>t.owner===m3));
+    const allocated = await leadCommand('create',{fields:{customer:'Synthetic allocated lead',source:'website',missing_contact_reason:'Telephone pending',routing:'unassigned'}});
+    await assert.rejects(leadCommand('assign',{rows:[{id:routed.id,version:0},{id:allocated.id,version:allocated.version}],member:m3,reason:'Synthetic reassignment'}),{code:'PT409'});
+    assert.equal((await leadRead({},allocated.id)).owner,null,'bulk assignments are atomic');
+    await leadCommand('assign',{rows:[{id:allocated.id,version:allocated.version}],member:m3,reason:'Synthetic reassignment'});
+    await db.exec(`select set_config('request.jwt.claim.sub','${u3}',false);`);
+    const personal = await leadRead({view:'mine'});
+    assert.equal(personal.total,2);
+    assert.equal(personal.notifications.length,2);
+    assert.ok((await leadCommand('read_notice',{id:personal.notifications[0].id})).saved);
+    assert.equal((await leadRead({view:'mine'})).notifications.filter(n=>n.read_at).length,1);
+    await assert.rejects(leadRead({},created.id),{code:'PT404'});
+    await assert.rejects(leadCommand('export',{query:{},format:'csv'}),{code:'42501'});
+    await assert.rejects(leadCommand('activity',{id:routed.id,version:routed.version,kind:'Call',summary:'Read-only user'}),{code:'PT404'});
+    await db.exec(`select set_config('request.jwt.claim.sub','${u2}',false);`);
     const readPolicy = organization => db.query('select public.read_operating_policy_settings($1) as settings', [organization]);
     assert.equal((await readPolicy(o1)).rows[0].settings.expense, null, 'a live email/password session can read admin settings');
     await assert.rejects(readPolicy(o2), {code:'42501'});
