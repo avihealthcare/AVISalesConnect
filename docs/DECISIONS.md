@@ -1,0 +1,28 @@
+# Architecture and decisions
+
+2026-11-25 — Baseline. The source of truth is the full prompt and SRS preserved in requirements.md. The project is a modular monolith: responsive React/TypeScript client, Supabase Auth/Postgres/private Storage and server-side transaction commands are the proposed architecture, subject to implementation and security verification. No hosted project, deployment, external provider, business policy or real data is configured. IndiaMART belongs to shared lead intake; tender and expense modules are Phase 1; AI features and automated external messaging are excluded.
+
+Implementation starts with pure domain rules so financial calculations can be tested without a hosted service. These functions are not authorization, persistence, transaction or concurrency controls. Server and database enforcement remains mandatory. JavaScript is used temporarily for the dependency-free domain starting point; conversion to TypeScript is outstanding before integration into the proposed client. A first read-only identity migration is tested in isolated PGlite with a minimal auth fixture. The full Supabase stack, authentication service, Data API, storage and production migrations have not been tested; those remain release gates. The source SRS data dictionary remains authoritative; schema.md is an outline, not a migration-ready dictionary.
+
+Supabase documentation checked 2026-11-25: RLS must be combined with explicit grants; private storage requires policies; CLI v3 has changed local/hosted targeting. Verify versions and commands again at installation. No provider API contracts are assumed.
+
+## Unresolved business decisions
+
+D-01 through D-10 in requirements.md remain open. Particularly, employee scope/authority, expense policy and approval routes, tender authority, booking attribution, live IndiaMART entitlement, Zoho mapping, retention and recovery must be approved by their respective business owners. No owner or approval is invented. Expense submission and approval must remain blocked where rules are missing. The live IndiaMART and Zoho connections are not implemented or enabled.
+
+
+2026-11-25 — The user selected AVI Healthcare Pvt Ltd for the hosted project. The connected Supabase account currently lists only LitYourWit; no project was created or modified. Await AVI organization access and the provider cost flow. Continue isolated local implementation. A later local migration allows multiple non-overlapping role-grant intervals; audited administrative grant/revoke commands remain outstanding.
+
+
+2026-11-25 — The user created the AVI Sales Connect project in AVI Healthcare Pvt Ltd. Applied the six existing foundation migrations; reconciled local migration filenames with hosted migration versions. Supabase security advisor returned no findings and all public tables have RLS enabled. This is partial infrastructure, not a completed authorization foundation or production release. Project region is ap-southeast-2 as selected when created by the user; hosting-region approval for production remains open.
+
+
+2026-11-25 — The later master development request is preserved verbatim in [MASTER-DEVELOPMENT-PROMPT-2026-11-25.md](MASTER-DEVELOPMENT-PROMPT-2026-11-25.md). It explicitly expands Phase 1 to distributor access, demonstration management, Zoho Books synchronization and the requested communications and maps integrations. It overrides conflicting earlier exclusions in SRS.md while retaining its detailed security and financial safeguards. Live provider access, financial mappings, any official Zoho writes, deployment and hosted mutations remain separately gated; no authorization or successful connection is inferred. See [scope reconciliation](scope-reconciliation.md).
+
+2026-11-25 — The user requested continuous delivery of the complete application without milestone-based handoffs. Treat milestone names as internal tracking only, not an invitation to pause or seek approval at each stage. The previously mandated foundation security gate remains in force; continue independent foundation work while its external verification is blocked. No scope is removed or deferred by this scheduling change.
+
+2026-11-25 — Added a private, immutable file staging metadata registry as an additive, fail-closed foundation. It records no bytes and grants no file access. Its reservation metadata cannot be removed through normal application operations; retention or orphan recovery requires a separately reviewed forward design, including protection of finalized evidence. The actual upload and safe-file lifecycle is not approved or implemented by this decision.
+
+2026-11-25 — Staged bytes use a separate private quarantine bucket. Application sessions have no direct object permissions there, including for a member who owns the parent resource. The future trusted upload service verifies stage authorization and size before writing. The future scanning and promotion path must verify and bind a verdict to the exact bytes before enabling parent-scoped retrieval. Consulted the Supabase guides on [bucket creation](https://supabase.com/docs/guides/storage/buckets/creating-buckets) and [Storage access control](https://supabase.com/docs/guides/storage/security/access-control).
+
+2026-11-26 — Continue in the selected AVI Sales Connect workspace using the source-only copy from the neighboring Sales Connect folder. The [new master brief](MASTER-DEVELOPMENT-PROMPT-2026-11-26.md) adds the GitHub repository and Supabase project names. Preserve earlier specifications and progress for traceability. Keep reservation permission separate from read authority so an organization can grant it deliberately once the complete file flow is ready.

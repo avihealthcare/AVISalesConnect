@@ -1,0 +1,29 @@
+{
+  "$schema": "https://supabase.com/schemas/config/v1.json",
+  "project_id": "avi-salesconnect-local",
+  "api": {
+    "enabled": true,
+    "port": 54321,
+    "schemas": ["public", "graphql_public"],
+    "extra_search_path": ["public", "extensions"],
+    "auto_expose_new_tables": false
+  },
+  "db": {
+    "port": 54322,
+    "major_version": 17,
+    "seed": { "enabled": false }
+  },
+  "storage": {
+    "enabled": true
+  },
+  "auth": {
+    "enabled": true,
+    "site_url": "http://127.0.0.1:5173",
+    "additional_redirect_urls": ["http://localhost:5173"],
+    "enable_signup": false,
+    "enable_anonymous_sign_ins": false,
+    "mfa": {
+      "totp": { "enroll_enabled": true, "verify_enabled": true }
+    }
+  }
+}

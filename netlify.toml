@@ -1,0 +1,21 @@
+# Configuration only: connecting a site or deploying requires separate authorization.
+[build]
+  command = "npm run build"
+  publish = "apps/web/dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(self)"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

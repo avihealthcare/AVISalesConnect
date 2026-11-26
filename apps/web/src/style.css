@@ -1,0 +1,17 @@
+:root{font-family:system-ui,-apple-system,sans-serif;color:#172f32;background:#eef5f3;font-synthesis:none}*{box-sizing:border-box}.layout{min-height:100vh;display:grid;place-items:center;padding:24px}.card{background:#fff;border:1px solid #d6e5e1;border-radius:14px;box-shadow:0 12px 36px #143a3512;padding:clamp(24px,6vw,48px);width:min(100%,460px)}.eyebrow{font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#3c6968;margin:0}h1{font-size:2rem;margin:.35rem 0 2rem}h2{font-size:1.25rem;margin:0 0 .5rem}p{line-height:1.55}form{display:grid;gap:.55rem;margin:1.5rem 0}label{font-weight:600;margin-top:.5rem}input{font:inherit;padding:.75rem;border:1px solid #78928e;border-radius:6px;width:100%}button{font:inherit;font-weight:650;color:white;background:#175b59;border:1px solid #175b59;border-radius:6px;padding:.75rem 1rem;cursor:pointer;margin-top:.75rem}button+button{margin-left:.5rem}.secondary{color:#175b59;background:#fff}button:disabled{opacity:.6;cursor:wait}:focus-visible{outline:3px solid #e2a72d;outline-offset:3px}.error{color:#a12626;font-weight:600}.notice{border-left:4px solid #d0951d;background:#fff9eb;padding:12px}ul{padding-left:1.25rem}
+.link{background:transparent;color:#175b59;border:0;text-decoration:underline;padding:.25rem 0;margin:0;cursor:pointer}
+.workspace{width:min(1150px,100%);margin:auto;padding:clamp(16px,4vw,40px)}
+.workspace-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.workspace-header h1{margin:.35rem 0}
+.workspace-nav{display:flex;gap:8px;margin:12px 0 24px;flex-wrap:wrap}
+.workspace-nav button{margin-left:0}
+.workspace-nav [aria-current=page]{background:#175b59;color:#fff}
+.workspace-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:18px;align-items:start}
+.panel{background:white;border:1px solid #d6e5e1;border-radius:12px;padding:clamp(16px,3vw,28px);min-width:0}
+select,textarea{font:inherit;padding:.7rem;border:1px solid #78928e;border-radius:6px;width:100%;color:inherit;background:#fff}
+.records{padding:0;list-style:none;overflow-wrap:anywhere}
+.records li{border-top:1px solid #d6e5e1;padding:12px 0}
+.records p{margin:.35rem 0}.requirement{white-space:pre-wrap}
+#source-filter{margin-top:.4rem}
+@media(max-width:730px){.workspace-grid{grid-template-columns:1fr}}
+.mfa-qr{width:180px;height:180px;max-width:100%;display:block}

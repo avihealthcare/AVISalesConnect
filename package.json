@@ -1,0 +1,31 @@
+{
+  "name": "avi-salesconnect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/unit/*.test.js tests/db/*.test.js",
+    "check": "node --check packages/domain/index.js && npm test && npm run build",
+    "dev": "vite apps/web",
+    "build": "tsc -p apps/web/tsconfig.json && vite build apps/web",
+    "test:hosted": "node --env-file=.env --test tests/integration/hosted-access.test.js",
+    "test:local-auth": "node --test tests/integration/local-auth.test.js"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.6.0",
+    "@types/react": "19.3.2",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "supabase": "3.4.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.119.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}
