@@ -9,6 +9,12 @@ type Membership = { id: string; organization_id: string; organizations: { name: 
 type Page = 'loading' | 'login' | 'challenge' | 'no-access' | 'home' | 'error' | 'recover' | 'recovery-sent' | 'new-password';
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+// Capture the callback type before Supabase consumes the URL fragment.
+const invitationRedirect = (() => {
+  const callback = new URLSearchParams(window.location.hash.slice(1));
+  return callback.get('type') === 'invite'
+    && callback.has('access_token') && callback.has('refresh_token');
+})();
 const client: SupabaseClient<Database> | null = url && key ? createClient<Database>(url, key) : null;
 
 function App() {
@@ -22,7 +28,7 @@ function App() {
   const [enrollment, setEnrollment] = useState<{ id: string; qr: string; secret: string } | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const recovery = useRef(false);
+  const passwordSetup = useRef(invitationRedirect);
   const [busy, setBusy] = useState(false);
   const accessCheck = useRef(0);
 
@@ -63,18 +69,35 @@ function App() {
     if (!client) { setError('The app connection is not configured.'); setPage('error'); return; }
     const db = client;
     let live = true;
-    db.auth.getSession().then(({ data, error: sessionError }) => {
-      if (!live || recovery.current) return;
-      if (sessionError) { setError('Unable to check your session.'); setPage('error'); return; }
-      void verifyAccess(data.session);
-    });
+    if (invitationRedirect) {
+      void (async () => {
+        const { error: redirectError } = await db.auth.initialize();
+        const { data, error: sessionError } = await db.auth.getSession();
+        if (!live) return;
+        if (redirectError || sessionError || !data.session) {
+          ++accessCheck.current;
+          setError('The invitation could not be verified. Ask your administrator for a fresh invitation.');
+          setPage('error');
+          return;
+        }
+        ++accessCheck.current;
+        setSession(data.session);
+        setPage('new-password');
+      })();
+    } else {
+      void db.auth.getSession().then(({ data, error: sessionError }) => {
+        if (!live || passwordSetup.current) return;
+        if (sessionError) { setError('Unable to check your session.'); setPage('error'); return; }
+        void verifyAccess(data.session);
+      });
+    }
     const { data: listener } = db.auth.onAuthStateChange((event, next) => {
       if (event === 'PASSWORD_RECOVERY') {
-        recovery.current = true; ++accessCheck.current; setSession(next); setMemberships([]); setError(''); setPage('new-password'); return;
+        passwordSetup.current = true; ++accessCheck.current; setSession(next); setMemberships([]); setError(''); setPage('new-password'); return;
       }
-      if (recovery.current && event !== 'SIGNED_OUT') return;
+      if (passwordSetup.current && event !== 'SIGNED_OUT') return;
       // Avoid awaiting other Supabase calls inside the auth callback.
-      window.setTimeout(() => { if (live && !recovery.current) void verifyAccess(next); }, 0);
+      window.setTimeout(() => { if (live && !passwordSetup.current) void verifyAccess(next); }, 0);
     });
     return () => { live = false; listener.subscription.unsubscribe(); };
   }, [verifyAccess]);
@@ -102,7 +125,7 @@ function App() {
     const result = await client.auth.updateUser({ password: newPassword });
     setNewPassword(''); setConfirmPassword('');
     if (result.error) { setError('Password could not be updated. Check the password requirements and try again.'); setBusy(false); return; }
-    recovery.current = false;
+    passwordSetup.current = false;
     const logout = await client.auth.signOut();
     if (logout.error) { setError('Password updated, but sign-out failed. Please sign out and sign in again.'); setPage('error'); }
     else { setSession(null); setPage('login'); }
@@ -158,7 +181,7 @@ function App() {
       <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form><button type="button" className="link" onClick={() => { setError(''); setPage('recover'); }}>Forgot password?</button></>}
     {page === 'recover' && <><h2>Reset password</h2><p>Enter your account email and we’ll send a recovery link if the account is eligible.</p><form onSubmit={requestRecovery}><label htmlFor="recovery-email">Email</label><input id="recovery-email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required /><button disabled={busy}>{busy ? 'Sending…' : 'Send recovery link'}</button></form><button type="button" className="link" onClick={() => { setError(''); setPage('login'); }}>Back to sign in</button></>}
     {page === 'recovery-sent' && <><h2>Check your email</h2><p>If the account is eligible, a recovery link will be sent. Check your inbox and spam folder.</p><button onClick={() => setPage('login')}>Back to sign in</button></>}
-    {page === 'new-password' && <><h2>Choose a new password</h2><form onSubmit={updatePassword}><label htmlFor="new-password">New password</label><input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required /><label htmlFor="confirm-password">Confirm password</label><input id="confirm-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required /><button disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button></form></>}
+    {page === 'new-password' && <><h2>{invitationRedirect ? 'Choose a password' : 'Choose a new password'}</h2><form onSubmit={updatePassword}><label htmlFor="new-password">New password</label><input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required /><label htmlFor="confirm-password">Confirm password</label><input id="confirm-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required /><button disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button></form></>}
     {page === 'challenge' && <><h2>Verify your identity</h2><p>Enter the code from your authenticator app.</p>
       {enrollment ? <div><p>Scan this QR code with your authenticator app or enter the setup key there.</p>
         {enrollment.qr.startsWith('data:image/svg+xml') && <img className="mfa-qr" src={enrollment.qr} alt="Authenticator setup QR code" />}

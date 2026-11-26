@@ -92,3 +92,7 @@ Netlify published the application at [avi-salesconnect.netlify.app](https://avi-
 Added expiring account and lead read shares, with a separate owner permission, MFA for both sides, same-organization foreign keys, current read permission, transactional audit, idempotent grant and revoke, and stale access denial. The 15-migration local reset, local security advisor, 11 unit/database tests, production build and expanded real local Auth/API/Storage test passed. Team and territory scope, offboarding, scanned private uploads and later Phase 1 modules remain incomplete. The new sharing migration has only been applied to the disposable local database.
 
 Next work includes confirming authorized staff, rehearsing hosted MFA and recovery, completing scoped role administration and private file upload, scan and release, then continuing the remaining Phase 1 milestones. No production readiness claim is made for the cloud preview.
+
+### Staff invitation acceptance
+
+Implemented handling of a Supabase invite link in the browser. After the provider verifies the callback, the app opens password setup, signs the user out after setting the password, and requires the existing MFA challenge on subsequent sign-in. Verified a real single-use local invitation against disposable Supabase and Chrome. The browser suite passed four cases, including the existing intake flow at three viewport sizes. Cloud invitation delivery, hosted redirect and MFA configuration, and staff activation await the designated pilot accounts. No external invitations have been sent.

@@ -11,7 +11,9 @@ const project = 'avi-salesconnect-local';
 const container = `supabase_db_${project}`;
 
 async function bootstrap() {
-  if (process.argv.length !== 3 || process.argv[2] !== '--disposable') {
+  const [, , confirmDisposable, mode, ...extra] = process.argv;
+  const invite = mode === '--invite-link';
+  if (confirmDisposable !== '--disposable' || (mode && !invite) || extra.length) {
     throw new Error('Run npm run dev:bootstrap -- --disposable against the repository’s local test stack.');
   }
   const labels = JSON.parse(execFileSync('docker', ['inspect', '--format', '{{json .Config.Labels}}', container], {
@@ -37,7 +39,11 @@ async function bootstrap() {
   const organization = randomUUID();
   const email = `demo-${organization}@example.invalid`;
   const password = `Local-${randomBytes(24).toString('base64url')}!9aA`;
-  const { data, error } = await operator.auth.admin.createUser({ email, password, email_confirm: true });
+  const { data, error } = invite
+    ? await operator.auth.admin.generateLink({
+        type: 'invite', email, options: { redirectTo: 'http://127.0.0.1:5173/' },
+      })
+    : await operator.auth.admin.createUser({ email, password, email_confirm: true });
   const user = data?.user?.id;
   if (error || !user || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(user)) {
     throw new Error('Could not create a synthetic Auth user.');
@@ -64,7 +70,12 @@ async function bootstrap() {
       : 'Local membership setup failed. The synthetic Auth user was removed.');
   }
 
-  process.stdout.write(`Synthetic local account\nEmail: ${email}\nPassword: ${password}\n`);
+  process.stdout.write(`Synthetic local account\nEmail: ${email}\n`);
+  if (invite && data && 'properties' in data) {
+    process.stdout.write(`Invitation: ${data.properties.action_link}\n`);
+  } else {
+    process.stdout.write(`Password: ${password}\n`);
+  }
 }
 
 bootstrap().catch(error => {

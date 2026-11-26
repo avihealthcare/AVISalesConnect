@@ -2,7 +2,7 @@
 
 The application is in development. These steps apply to the current initial workspace and require an authorized account.
 
-1. Sign in using the email and password provided through authorized staff setup.
+1. Open your staff invitation and choose a password. Sign in with your AVI work email and that password.
 2. Follow the authenticator instructions if prompted. Enter the current code to verify the session.
 3. Choose an available organization. The initial workspace lists records your membership and role can access.
 4. Use the customer and lead sections to create and review records within your own scope. Available actions depend on permissions.
