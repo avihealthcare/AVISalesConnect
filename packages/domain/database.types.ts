@@ -512,6 +512,10 @@ export type Database = {
         Args: { p_input: Json; p_key: string; p_kind: string; p_org: string }
         Returns: string
       }
+      deactivate_staff: {
+        Args: { p_key: string; p_member: string; p_org: string }
+        Returns: string
+      }
       progress_lead: {
         Args: {
           p_action: string
@@ -534,6 +538,15 @@ export type Database = {
           p_size: number
         }
         Returns: string
+      }
+      staff_directory: {
+        Args: { p_org: string }
+        Returns: Array<{
+          can_deactivate: boolean
+          display_name: string
+          membership_id: string
+          status: string
+        }>
       }
       update_opportunity_pipeline: {
         Args: {

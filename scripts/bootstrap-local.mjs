@@ -11,9 +11,10 @@ const project = 'avi-salesconnect-local';
 const container = `supabase_db_${project}`;
 
 async function bootstrap() {
-  const [, , confirmDisposable, mode, ...extra] = process.argv;
-  const invite = mode === '--invite-link';
-  if (confirmDisposable !== '--disposable' || (mode && !invite) || extra.length) {
+  const [, , confirmDisposable, ...options] = process.argv;
+  const invite = options.includes('--invite-link');
+  const pilotAdmin = options.includes('--pilot-admin');
+  if (confirmDisposable !== '--disposable' || options.length !== Number(invite) + Number(pilotAdmin)) {
     throw new Error('Run npm run dev:bootstrap -- --disposable against the repository’s local test stack.');
   }
   const labels = JSON.parse(execFileSync('docker', ['inspect', '--format', '{{json .Config.Labels}}', container], {
@@ -49,6 +50,10 @@ async function bootstrap() {
     throw new Error('Could not create a synthetic Auth user.');
   }
 
+  const request = randomUUID();
+  const provisionMembership = pilotAdmin
+    ? `select private.provision_pilot_super_admin('${organization}', '${user}', 'Synthetic administrator', '${request}');`
+    : `select private.provision_intake_staff('${organization}', '${user}', 'Synthetic staff', null, '${request}');`;
   try {
     execFileSync('docker', ['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
       '-U', 'postgres', '-d', 'postgres', '-qAt'], {
@@ -56,9 +61,7 @@ async function bootstrap() {
         begin;
         insert into public.organizations (id, name, timezone, base_currency, financial_year_start_month)
         values ('${organization}', 'Synthetic AVI SalesConnect', 'Asia/Kolkata', 'INR', 4);
-        select private.provision_intake_staff(
-          '${organization}', '${user}', 'Synthetic staff', null, '${randomUUID()}'
-        );
+        ${provisionMembership}
         commit;
       `,
       stdio: ['pipe', 'pipe', 'pipe'],

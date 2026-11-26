@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
+import { StaffAdministration } from './StaffAdministration';
 
-type Screen = 'home' | 'accounts' | 'leads' | 'opportunities';
+type Screen = 'home' | 'accounts' | 'leads' | 'opportunities' | 'administration';
 type Account = { id: string; name: string; account_type: string };
 type Lead = { id: string; display_number: number; prospect_name: string; source: string; received_at: string; lifecycle: string; contact_route: string | null; requirement_text: string | null; account_id: string | null; row_version: number; next_action: string | null; next_action_due_at: string | null };
 type OrganizationMembership = { id: string; organization_id: string; organizations: { name: string } | null };
@@ -136,13 +137,26 @@ function IntakeList({ db, organization, screen }: { db: SupabaseClient<Database>
 export function IntakeWorkspace({ db, memberships, signOut, busy }: { db: SupabaseClient<Database>; memberships: OrganizationMembership[]; signOut: () => void; busy: boolean }) {
   const [organization, selectOrganization] = useState(memberships[0].organization_id);
   const [screen, setScreen] = useState<Screen>('home');
+  const [adminOrganization, setAdminOrganization] = useState<string>();
+  const canViewAdministration = adminOrganization === organization;
+  useEffect(() => {
+    let current = true;
+    void db.from('role_permissions').select('permission_code').eq('organization_id', organization)
+      .eq('permission_code', 'staff.directory.read').limit(1).then(({ data, error }) => {
+        if (current) setAdminOrganization(!error && data?.length ? organization : undefined);
+      });
+    return () => { current = false; };
+  }, [db, organization]);
   return <main className="workspace">
     <header className="workspace-header"><div><p className="eyebrow">AVI Healthcare</p><h1>SalesConnect</h1></div>
-      <div><label htmlFor="organization">Organization</label><select id="organization" value={organization} onChange={e => selectOrganization(e.target.value)}>{memberships.map(m => <option key={m.id} value={m.organization_id}>{m.organizations?.name ?? 'Organization'}</option>)}</select></div>
+      <div><label htmlFor="organization">Organization</label><select id="organization" value={organization} onChange={e => { selectOrganization(e.target.value); setScreen('home'); }}>{memberships.map(m => <option key={m.id} value={m.organization_id}>{m.organizations?.name ?? 'Organization'}</option>)}</select></div>
       <button className="secondary" onClick={signOut} disabled={busy}>Sign out</button>
     </header>
-    <nav className="workspace-nav" aria-label="SalesConnect">{([['home','Home'],['accounts','Customers'],['leads','Leads'],['opportunities','Opportunities']] as const).map(([id,label]) => <button key={id} className="secondary" aria-current={id === screen ? 'page' : undefined} onClick={() => setScreen(id)}>{label}</button>)}</nav>
-    {screen === 'home' ? <section className="panel"><h2>Sales workspace</h2><p>Create customers, capture and follow up on inquiries, and view converted opportunities.</p></section> : screen === 'opportunities' ? <OpportunityList key={organization} db={db} organization={organization} /> : <IntakeList key={organization + screen} db={db} organization={organization} screen={screen} />}
+    <nav className="workspace-nav" aria-label="SalesConnect">{([['home','Home'],['accounts','Customers'],['leads','Leads'],['opportunities','Opportunities']] as const).map(([id,label]) => <button key={id} className="secondary" aria-current={id === screen ? 'page' : undefined} onClick={() => setScreen(id)}>{label}</button>)}
+      {canViewAdministration && <button className="secondary" aria-current={screen === 'administration' ? 'page' : undefined} onClick={() => setScreen('administration')}>Administration</button>}
+    </nav>
+    {screen === 'administration' ? canViewAdministration && <StaffAdministration key={organization} db={db} organization={organization} />
+      : screen === 'home' ? <section className="panel"><h2>Sales workspace</h2><p>Create customers, capture and follow up on inquiries, and view converted opportunities.</p></section> : screen === 'opportunities' ? <OpportunityList key={organization} db={db} organization={organization} /> : <IntakeList key={organization + screen} db={db} organization={organization} screen={screen} />}
   </main>;
 }
 

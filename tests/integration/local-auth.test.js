@@ -186,4 +186,50 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
   assert.equal((await reserve()).error?.code, '42501', 'inactive membership cannot replay a reservation');
   assert.ok((await ownerStorage.download(path)).error, 'inactive membership cannot download quarantined bytes using an existing token');
   assert.ifError((await storage.remove([path])).error);
+
+  const administratorEmail = `admin-${run}@example.invalid`;
+  const administratorAuth = await admin.auth.admin.createUser({
+    email: administratorEmail, password, email_confirm: true,
+  });
+  assert.ifError(administratorAuth.error);
+  const administratorId = administratorAuth.data.user.id;
+  const adminMember = sql(`select private.provision_pilot_super_admin(
+    '${foreignOrg}','${administratorId}','Synthetic administrator','${randomUUID()}'
+  );`).toString().trim();
+  assert.throws(() => sql(`select private.provision_pilot_super_admin(
+    '${foreignOrg}','${administratorId}','Synthetic administrator','${randomUUID()}'
+  );`), 'a second pilot administrator bootstrap is denied');
+
+  const pilotApi = client(anon);
+  assert.ifError((await pilotApi.auth.signInWithPassword({ email: administratorEmail, password })).error);
+  const directory = api => api.rpc('staff_directory', { p_org: foreignOrg });
+  assert.equal((await directory(pilotApi)).error?.code, '42501', 'administrator needs MFA');
+  assert.equal((await directory(users[1].api)).error?.code, '42501', 'intake staff cannot read the directory');
+  const factor = await pilotApi.auth.mfa.enroll({ factorType: 'totp' });
+  assert.ifError(factor.error);
+  const verify = await pilotApi.auth.mfa.challengeAndVerify({
+    factorId: factor.data.id, code: totp(factor.data.totp.secret),
+  });
+  assert.ifError(verify.error);
+  const staff = await directory(pilotApi);
+  assert.ifError(staff.error);
+  assert.ok(staff.data.some(row => row.membership_id === adminMember && !row.can_deactivate));
+  assert.ok(staff.data.some(row => row.membership_id === foreignMember && row.can_deactivate));
+  assert.equal((await pilotApi.rpc('staff_directory', { p_org: org })).error?.code, '42501');
+
+  const deactivate = (target, key = randomUUID(), api = pilotApi) =>
+    api.rpc('deactivate_staff', { p_org: foreignOrg, p_member: target, p_key: key });
+  assert.equal((await deactivate(adminMember)).error?.code, '42501', 'administrator cannot deactivate own access');
+  assert.equal((await deactivate(recipient)).error?.code, '42501', 'staff action cannot target another organization');
+  assert.equal((await deactivate(foreignMember, randomUUID(), users[1].api)).error?.code, '42501', 'regular staff cannot deactivate');
+  const owned = await users[1].api.rpc('create_intake_record', { ...args, p_org: foreignOrg, p_key: randomUUID() });
+  assert.ifError(owned.error);
+  assert.equal((await deactivate(foreignMember)).error?.code, 'PT409', 'open records must be reassigned');
+  sql(`update public.resources set archived_at=now() where id='${owned.data}';`);
+  const deactivateKey = randomUUID();
+  const disabled = await deactivate(foreignMember, deactivateKey);
+  assert.ifError(disabled.error);
+  assert.equal((await deactivate(foreignMember, deactivateKey)).data, disabled.data);
+  assert.equal((await users[1].api.from('memberships').select('id').eq('id', foreignMember)).data.length, 0, 'existing token loses access');
+  assert.equal(sql(`select count(*) from private.audit_events where request_id='${deactivateKey}' and action='staff.deactivate';`).toString().trim(), '1');
 });

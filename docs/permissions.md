@@ -30,3 +30,7 @@ On 2026-11-25 the resource read policy was tightened to require an effective `<r
 ## Explicit customer and lead shares
 
 An active owner with MFA, the module's read permission and its separate `account.share` or `lead.share` action can grant or revoke temporary read access to that exact CRM record for another member of the same organization. The permissions are unassigned by default. The recipient must have current AAL2 and module read access. Sharing a lead grants visibility to its existing contact-attempt records through the lead policy. It grants no access to the linked account, opportunities, files or editing commands. Account sharing similarly does not grant access to linked leads. Team, territory and distributor permissions remain separate work.
+
+## Pilot Super Administrator
+
+This MFA-required role can view the organization's staff directory and deactivate eligible staff. Direct browser writes to memberships are denied. The operator bootstraps at most one initial administrator per organization. Deactivation is audited and is rejected for the acting administrator, another active super administrator, a different organization and members who own open records requiring reassignment.
