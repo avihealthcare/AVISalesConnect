@@ -26,3 +26,7 @@ On 2026-11-25 the resource read policy was tightened to require an effective `<r
 | Read stage metadata or access quarantine objects as an application user | Denied |
 
 `file.stage` is unassigned by default. The stage UUID provides no file access. The reservation command checks the same permissions on retries.
+
+## Explicit customer and lead shares
+
+An active owner with MFA, the module's read permission and its separate `account.share` or `lead.share` action can grant or revoke temporary read access to that exact CRM record for another member of the same organization. The permissions are unassigned by default. The recipient must have current AAL2 and module read access. Sharing a lead grants visibility to its existing contact-attempt records through the lead policy. It grants no access to the linked account, opportunities, files or editing commands. Account sharing similarly does not grant access to linked leads. Team, territory and distributor permissions remain separate work.

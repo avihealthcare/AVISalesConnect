@@ -1,6 +1,6 @@
 # AVI SalesConnect
 
-AVI Healthcare's sales operations application is in foundation development. The existing web app supports sign-in, authenticator MFA, password recovery, and initial customer and lead workflows. The full Phase 1 release, production deployment and external connections are pending. Use synthetic data in development.
+AVI Healthcare's sales operations application is in foundation development. The existing web app supports sign-in, authenticator MFA, password recovery, and initial customer and lead workflows. The [cloud sign-in page](https://avi-salesconnect.netlify.app/) is deployed from GitHub. Staff activation, the full Phase 1 release and external connections are pending. Use synthetic data in development.
 
 ## Local development
 

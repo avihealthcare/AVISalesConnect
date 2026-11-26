@@ -75,3 +75,9 @@ The reservation transaction accepts an organization, parent resource, client ope
 A stage expires one hour after creation, using database time. A rolling limit of 20 reservations per membership per hour bounds metadata creation. A membership-scoped lock serializes quota checks. Shared locks protect membership and parent state during the transaction. A fixed command name, canonical payload hash, existing receipt and the common operation lock enforce replay safety. The returned stage UUID identifies metadata only. Storage object tokens and filenames are excluded from audit details and API output.
 
 The change is additive. If reservation must be suspended, revoke authenticated execution from the public wrapper and private command in a forward migration. Preserve immutable stages, receipts and audit events. Byte upload, expiry cleanup, scanner verdicts and file promotion require separate stages of implementation.
+
+## Explicit customer and lead read shares
+
+`private.crm_record_shares` stores one grant period for a resource and recipient membership, with same-organization foreign keys for the resource, granting owner and recipient. Sharing applies only to accounts and leads. Each grant has finite expiry and optional revocation time. A resource row lock serializes edits to grant periods. Audit events and operation receipts are append-only and written in the same transaction. No client can directly read or write the share table.
+
+The read policy additionally requires the recipient's current module read permission, active membership and MFA. A grant loses effect on expiry, revocation, parent archival or ownership change, or deactivation of the owner or recipient. Existing owner-only mutations and file operations keep their current authorization boundaries. A forward recovery migration can drop the share read policy and revoke execute on the command while preserving share and audit history.

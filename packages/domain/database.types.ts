@@ -497,6 +497,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      change_crm_record_share: {
+        Args: {
+          p_action: string
+          p_expires_at: string | null
+          p_key: string
+          p_org: string
+          p_recipient: string
+          p_resource: string
+        }
+        Returns: string
+      }
       create_intake_record: {
         Args: { p_input: Json; p_key: string; p_kind: string; p_org: string }
         Returns: string

@@ -17,7 +17,7 @@ The request expands Phase 1 to include distributor access, demonstration managem
 | 23 Zoho Books | Phase 1 integration architecture and requested synchronization outstanding. Live use depends on credentials, provider capabilities, approved mappings and explicit authorization for official writes. |
 | 24–25 Reports and global search | Not implemented to requested scope; scoped queries and export controls outstanding. |
 | 26–28 Security, offline and administration | Partial local Auth/API and Storage quarantine evidence. M1 requires the complete private-file lifecycle, scope model, audited administration and expanded security verification. Offline workflows remain outstanding. |
-| 29–30 GitHub and Netlify | The selected workspace is initialized locally and the named GitHub repository was located. See the progress log for publication status. CI file exists; full deployment/PWA configuration and verification outstanding. |
+| 29–30 GitHub and Netlify | Source is published to GitHub and the Netlify sign-in page is online. CI, staging, staff authentication and PWA coverage remain partial. See the progress log for verification details. |
 | 31–32 Tests and sequence | Existing local tests cover partial behaviors; the full nine milestones and acceptance scenarios remain unverified. |
 | 33–35 Documentation and final outcome | Existing documents cover part of the requirement; all requested named documents and end-to-end outcomes need reconciliation and verification. |
 

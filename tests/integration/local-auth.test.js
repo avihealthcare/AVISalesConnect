@@ -17,7 +17,7 @@ const client = key => createClient(url, key, { auth: { persistSession: false, au
 const admin = client(service);
 const sql = text => execFileSync('docker', ['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres', '-qAt'], { input: text, stdio: ['pipe', 'pipe', 'pipe'] });
 
-test('real local Auth, API and Storage enforce own scope, quarantine and deactivation', async () => {
+test('real local Auth, API and Storage enforce record scope, quarantine and deactivation', async () => {
   const org = randomUUID(), run = randomUUID(), password = `Synthetic-${randomUUID()}aA1!`;
   const users = [];
   for (const label of ['a', 'b']) {
@@ -135,6 +135,46 @@ test('real local Auth, API and Storage enforce own scope, quarantine and deactiv
   assert.deepEqual(Buffer.from(await retained.data.arrayBuffer()), bytes, 'denied operations leave quarantined bytes intact');
   const other = await users[1].api.from('accounts').select('id').eq('id', results[0].data);
   assert.ifError(other.error); assert.deepEqual(other.data, [], 'another user must not see the record');
+  const recipient = sql(`select id from public.memberships where organization_id='${org}' and user_id='${users[1].id}';`).toString().trim();
+  const share = {
+    p_org: org, p_resource: results[0].data, p_recipient: recipient, p_key: randomUUID(),
+    p_action: 'grant', p_expires_at: new Date(Date.now() + 3600_000).toISOString(),
+  };
+  const changeShare = (api = users[0].api, overrides = {}) =>
+    api.rpc('change_crm_record_share', { ...share, ...overrides });
+  const readShared = api => api.from('accounts').select('id').eq('id', share.p_resource);
+  assert.equal((await changeShare()).error?.code, '42501', 'sharing requires a separate permission');
+  sql(`insert into public.role_permissions(organization_id,role_id,permission_code)
+    select organization_id,id,'account.share' from public.roles where organization_id='${org}' and code='intake_staff';`);
+  assert.equal((await changeShare(passwordOnly)).error?.code, '42501', 'sharing requires current MFA');
+  assert.equal((await changeShare(users[1].api, { p_recipient: member })).error?.code, '42501', 'a nonowner cannot share');
+  const foreignMember = sql(`select private.provision_intake_staff('${foreignOrg}','${users[1].id}','Synthetic user',null,'${randomUUID()}');`).toString().trim();
+  assert.equal((await changeShare(users[0].api, { p_recipient: foreignMember })).error?.code, '42501', 'sharing cannot cross organizations');
+  const shareResults = await Promise.all([changeShare(), changeShare(), changeShare()]);
+  shareResults.forEach(result => assert.ifError(result.error));
+  assert.equal(new Set(shareResults.map(result => result.data)).size, 1, 'concurrent grant retries share one period');
+  assert.equal((await changeShare(users[0].api, { p_key: randomUUID() })).error?.code, 'PT409');
+  assert.equal((await changeShare(users[0].api, { p_expires_at: new Date(Date.now() + 7200_000).toISOString() })).error?.code, 'PT409');
+  const visibleShare = await readShared(users[1].api);
+  assert.ifError(visibleShare.error);
+  assert.deepEqual(visibleShare.data, [{ id: share.p_resource }]);
+  const recipientAal1 = client(anon);
+  assert.ifError((await recipientAal1.auth.signInWithPassword({ email: users[1].email, password })).error);
+  assert.deepEqual((await readShared(recipientAal1)).data, [], 'shared records require recipient MFA');
+  const otherAccount = raced.find(result => !result.error).data;
+  assert.deepEqual((await users[1].api.from('accounts').select('id').eq('id', otherAccount)).data, []);
+  assert.ok((await users[1].api.from('accounts').update({name:'Forbidden'}).eq('id', share.p_resource)).error);
+  sql(`update private.crm_record_shares set granted_at=now() - interval '2 hours',expires_at=now() - interval '1 hour'
+     where id='${shareResults[0].data}';`);
+  assert.deepEqual((await readShared(users[1].api)).data, [], 'expired shares do not allow reads');
+  assert.ifError((await changeShare(users[0].api, { p_key: randomUUID() })).error);
+  const revoke = { p_key: randomUUID(), p_action: 'revoke', p_expires_at: null };
+  const revoked = await changeShare(users[0].api, revoke);
+  assert.ifError(revoked.error);
+  assert.equal((await changeShare(users[0].api, revoke)).data, revoked.data, 'revocation retry is idempotent');
+  assert.deepEqual((await readShared(users[1].api)).data, [], 'revocation removes access with an existing token');
+  assert.equal(sql(`select count(*) from private.audit_events where resource_id='${share.p_resource}' and action like 'crm.share.%';`).toString().trim(), '3');
+  assert.ifError((await changeShare(users[0].api, { p_key: randomUUID() })).error);
   const direct = await users[0].api.from('accounts').update({name:'Unauthorized'}).eq('id', results[0].data);
   assert.ok(direct.error, 'direct table mutation must be denied');
   sql(`update public.memberships set status='Inactive' where organization_id='${org}' and user_id='${users[0].id}';`);
@@ -142,6 +182,7 @@ test('real local Auth, API and Storage enforce own scope, quarantine and deactiv
   assert.ifError(stale.error); assert.deepEqual(stale.data, [], 'inactive membership must lose access with an existing token');
   const denied = await users[0].api.rpc('create_intake_record', {...args,p_key:randomUUID()});
   assert.ok(denied.error, 'inactive membership must not execute commands');
+  assert.deepEqual((await readShared(users[1].api)).data, [], 'deactivating the owner invalidates the share');
   assert.equal((await reserve()).error?.code, '42501', 'inactive membership cannot replay a reservation');
   assert.ok((await ownerStorage.download(path)).error, 'inactive membership cannot download quarantined bytes using an existing token');
   assert.ifError((await storage.remove([path])).error);
