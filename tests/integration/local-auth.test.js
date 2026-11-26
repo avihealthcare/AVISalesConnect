@@ -1,9 +1,10 @@
 // Opt-in against an explicitly disposable local Supabase stack only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
+import { totp } from '../support/totp.js';
 
 const url = process.env.LOCAL_SUPABASE_URL;
 const anon = process.env.LOCAL_SUPABASE_ANON_KEY;
@@ -15,17 +16,6 @@ assert.ok(anon && service && /^supabase_db_[a-zA-Z0-9_-]+$/.test(container || ''
 const client = key => createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
 const admin = client(service);
 const sql = text => execFileSync('docker', ['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres', '-qAt'], { input: text, stdio: ['pipe', 'pipe', 'pipe'] });
-function totp(secret) {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let bits = '';
-  for (const ch of secret.replace(/=+$/, '').toUpperCase()) {
-    const value = alphabet.indexOf(ch); assert.ok(value >= 0); bits += value.toString(2).padStart(5, '0');
-  }
-  const bytes = Buffer.from((bits.match(/.{8}/g) || []).map(b => parseInt(b, 2)));
-  const counter = Buffer.alloc(8); counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
-  const mac = createHmac('sha1', bytes).update(counter).digest(); const offset = mac[mac.length - 1] & 15;
-  return String((mac.readUInt32BE(offset) & 0x7fffffff) % 1000000).padStart(6, '0');
-}
 
 test('real local Auth, API and Storage enforce own scope, quarantine and deactivation', async () => {
   const org = randomUUID(), run = randomUUID(), password = `Synthetic-${randomUUID()}aA1!`;

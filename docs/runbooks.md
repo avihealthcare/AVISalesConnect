@@ -60,3 +60,9 @@ Production file handling still requires a chosen scanner, server-side byte check
 ## Repository local configuration
 
 The checked-in local configuration uses Postgres 17, disables automatic exposure of newly created tables, disables public signup and enables TOTP. It identifies the disposable SalesConnect stack as `avi-salesconnect-local` and uses ports 54321 for the API and 54322 for the database. Check for local port conflicts before starting. For development sign-in, use local synthetic user provisioning and the local public API settings in `.env`. Keep operator credentials outside Vite and Git. Local configuration does not configure the hosted project.
+
+### Synthetic staff and browser checks
+
+After starting the stack from this repository, run `npm run dev:bootstrap -- --disposable` to create a synthetic organization and one MFA-required intake user. The command checks the running database container's project and workspace labels and accepts only the fixed loopback API address. Each successful run prints disposable credentials to the local terminal. Do not use them outside this stack.
+
+With Chrome installed and port 5173 free, run `npm run test:e2e`. The test server uses the local API and receives only the local browser key. Each test creates a synthetic staff account and checks sign-in, authenticator setup, linked customer and lead creation, refresh and sign-out. The three projects exercise desktop, tablet and phone viewport sizes. The tests do not require a live provider or hosted credentials.

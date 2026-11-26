@@ -1,6 +1,6 @@
 # Application design system and screen specifications
 
-The [master brief](MASTER-DEVELOPMENT-PROMPT-2026-11-25.md) defines the navigation, brand and modules. The [SRS screen register](SRS.md#6-screen-specifications) defines the workflow details. Use the [route map](routes.md) to locate the planned screens and the [permission matrix](permissions.md) to determine visibility and available actions. This is the target design for the shared app shell and its components. The current sign-in and intake screens are an earlier implementation.
+The [master brief](MASTER-DEVELOPMENT-PROMPT-2026-11-26.md) defines the navigation, brand and modules. The [SRS screen register](SRS.md#6-screen-specifications) defines the workflow details. Use the [route map](routes.md) to locate the planned screens and the [permission matrix](permissions.md) to determine visibility and available actions. This is the target design for the shared app shell and its components. The current sign-in and intake screens are an earlier implementation.
 
 ## Brand and theme
 
