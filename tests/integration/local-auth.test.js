@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
-import { totp } from '../support/totp.js';
+import { createPrivateFileHandler } from '../../supabase/functions/_shared/private-files.js';
 
 const url = process.env.LOCAL_SUPABASE_URL;
 const anon = process.env.LOCAL_SUPABASE_ANON_KEY;
@@ -29,11 +29,9 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
       users.map(u => `select private.provision_intake_staff('${org}','${u.id}','Synthetic user',null,'${randomUUID()}');`).join('\n'));
   for (const user of users) {
     const signed = await user.api.auth.signInWithPassword({ email: user.email, password }); assert.ifError(signed.error);
-    const denied = await user.api.rpc('create_intake_record', { p_org: org, p_key: randomUUID(), p_kind: 'account', p_input: {name:'Synthetic Hospital',account_type:'Hospital'} });
-    assert.ok(denied.error, 'MFA-required command must deny AAL1');
-    const enrolled = await user.api.auth.mfa.enroll({ factorType: 'totp' }); assert.ifError(enrolled.error);
-    const challenge = await user.api.auth.mfa.challenge({ factorId: enrolled.data.id }); assert.ifError(challenge.error);
-    const verified = await user.api.auth.mfa.verify({ factorId: enrolled.data.id, challengeId: challenge.data.id, code: totp(enrolled.data.totp.secret) }); assert.ifError(verified.error);
+    const claims = await user.api.auth.getClaims();
+    assert.ifError(claims.error);
+    assert.equal(claims.data.claims.aal, 'aal1', 'staff uses an email/password session');
   }
   const foreignOrg = randomUUID();
   sql(`insert into public.organizations(id,name,timezone,base_currency,financial_year_start_month) values ('${foreignOrg}','Synthetic other organization','Asia/Kolkata','INR',4);`);
@@ -66,9 +64,6 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
   assert.equal((await reserve()).error?.code, '42501', 'parent read permission alone cannot reserve');
   sql(`insert into public.role_permissions(organization_id,role_id,permission_code)
     select organization_id,id,'file.stage' from public.roles where organization_id='${org}' and code='intake_staff';`);
-  const passwordOnly = client(anon);
-  assert.ifError((await passwordOnly.auth.signInWithPassword({ email: users[0].email, password })).error);
-  assert.equal((await reserve(passwordOnly)).error?.code, '42501', 'MFA is required');
   assert.equal((await reserve(users[1].api)).error?.code, '42501', 'a different owner cannot reserve');
   assert.equal((await reserve(users[0].api, { p_org: foreignOrg })).error?.code, '42501');
   assert.equal((await reserve(users[0].api, { p_purpose: 'receipt' })).error?.code, '42501');
@@ -133,6 +128,102 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
   const retained = await storage.download(path);
   assert.ifError(retained.error);
   assert.deepEqual(Buffer.from(await retained.data.arrayBuffer()), bytes, 'denied operations leave quarantined bytes intact');
+  // Test the Edge handler against real local Auth, PostgREST and Storage.
+  // The scanner callbacks are controlled fixtures. They do not claim to detect malware.
+  const allowedOrigin = 'http://127.0.0.1:5173';
+  const handler = scan => createPrivateFileHandler({ client: admin, allowedOrigin, enabled: true, scan });
+  const enabledFilePath = org + '/' + objectTokenForStage;
+  const [{ data: ownerSession }, { data: peerSession }] = await Promise.all([
+    users[0].api.auth.getSession(), users[1].api.auth.getSession(),
+  ]);
+  const expiredClient = client(anon);
+  const { data: expiredLogin, error: expiredLoginError } = await expiredClient.auth.signInWithPassword({
+    email: users[0].email, password,
+  });
+  assert.ifError(expiredLoginError);
+  const expiredClaims = await expiredClient.auth.getClaims();
+  assert.ifError(expiredClaims.error);
+  const expiredId = expiredClaims.data.claims.session_id;
+  assert.match(expiredId, /^[0-9a-f-]{36}$/);
+  sql(`update auth.sessions set not_after=now() - interval '1 day' where id='${expiredId}';`);
+  const callFile = (handle, {
+    method = 'GET', stage = stageId, session = ownerSession.session, body = bytes, origin = allowedOrigin,
+  } = {}) => handle(new Request(url + '/functions/v1/private-files?stage=' + stage, {
+    method,
+    headers: {
+      ...(session ? { authorization: 'Bearer ' + session.access_token } : {}),
+      ...(origin ? { origin } : {}),
+      ...(method === 'POST' ? { 'content-type': 'application/pdf' } : {}),
+    },
+    ...(method === 'POST' ? { body } : {}),
+  }));
+  const cleanScanner = handler(async inspection => ({
+    sha256: inspection.sha256, verdict: 'clean', version: 'synthetic-test',
+  }));
+  const quarantineOnly = handler();
+  const badScanner = handler(async () => ({
+    sha256: '0'.repeat(64), verdict: 'clean', version: 'synthetic-test',
+  }));
+  assert.equal((await callFile(quarantineOnly, { session: null })).status, 401);
+  assert.equal((await callFile(quarantineOnly, { session: expiredLogin.session, method: 'POST' })).status, 404, 'expired sessions cannot upload');
+  assert.equal((await callFile(quarantineOnly, { session: peerSession.session, method: 'POST' })).status, 404);
+  assert.equal((await callFile(quarantineOnly, { origin: 'https://unrelated.example.invalid' })).status, 403);
+  assert.equal((await callFile(quarantineOnly, { method: 'POST', body: bytes.subarray(0, -1) })).status, 422);
+  const publicWorkerRead = await users[0].api.rpc('file_worker_lookup', {
+    p_user: users[0].id, p_session: randomUUID(), p_stage: stageId, p_download: false,
+  });
+  assert.ok(publicWorkerRead.error, 'browser roles cannot call the trusted database broker');
+  sql(`insert into public.role_permissions(organization_id,role_id,permission_code)
+    select organization_id,id,'file.download' from public.roles where organization_id='${org}' and code='intake_staff';`);
+  assert.equal((await callFile(quarantineOnly, { method: 'POST' })).status, 202);
+  assert.equal((await callFile(quarantineOnly)).status, 404, 'no scanner means no release');
+  assert.equal((await callFile(badScanner, { method: 'POST' })).status, 202);
+  assert.equal((await callFile(cleanScanner)).status, 404, 'a mismatched digest cannot release bytes');
+  sql(`update private.file_upload_objects set scan_lease_until=now()-interval '1 second' where stage_id='${stageId}';`);
+  const updatedBytes = Buffer.from(bytes);
+  updatedBytes[updatedBytes.length - 1] = 32;
+  assert.equal((await callFile(cleanScanner, { method: 'POST', body: updatedBytes })).status, 409);
+  assert.equal((await callFile(cleanScanner, { method: 'POST' })).status, 200);
+  assert.equal((await callFile(cleanScanner, { method: 'POST' })).status, 200);
+  const released = await callFile(cleanScanner);
+  assert.equal(released.status, 200);
+  assert.equal(released.headers.get('cache-control'), 'private, no-store');
+  assert.match(released.headers.get('content-disposition'), /attachment.*Synthetic.pdf/);
+  assert.deepEqual(Buffer.from(await released.arrayBuffer()), bytes);
+  assert.equal((await callFile(cleanScanner, { session: peerSession.session })).status, 404);
+  assert.ok((await ownerStorage.download(enabledFilePath)).error, 'clean bytes remain private in Storage');
+  const listArgs = { p_org: org, p_resource: results[0].data, p_offset: 0 };
+  const attachmentList = await users[0].api.rpc('crm_record_files', listArgs);
+  assert.ifError(attachmentList.error);
+  const attached = attachmentList.data.find(file => file.id === stageId);
+  assert.equal(attached.status, 'Available');
+  assert.equal(attached.file_name, 'Synthetic.pdf');
+  assert.deepEqual(Object.keys(attached).sort(), ['created_at', 'file_name', 'id', 'status']);
+  assert.equal((await users[1].api.rpc('crm_record_files', listArgs)).error?.code, '42501');
+  assert.equal(sql(`select count(*) from private.audit_events where request_id='${stageId}'
+    and action in ('file.stored','file.scan.clean');`).toString().trim(), '2');
+
+  const rejectedStage = attempts.find(result => !result.error).data;
+  const rejectedScanner = handler(async inspection => ({
+    sha256: inspection.sha256, verdict: 'rejected', version: 'synthetic-test',
+  }));
+  const rejected = await callFile(rejectedScanner, { stage: rejectedStage, method: 'POST' });
+  assert.deepEqual(await rejected.json(), { status: 'rejected' });
+  assert.equal((await callFile(cleanScanner, { stage: rejectedStage })).status, 404);
+  const rejectedToken = sql(`select object_token from private.file_upload_stages where id='${rejectedStage}';`).toString().trim();
+  const workerPaths = [enabledFilePath, org + '/' + rejectedToken];
+  if (process.env.TEST_LOCAL_FILE_EDGE === 'yes') {
+    const runtimeStage = attempts.filter(result => !result.error)[1].data;
+    const runtimeHandler = request => fetch(request);
+    const pending = await callFile(runtimeHandler, { stage: runtimeStage, method: 'POST' });
+    assert.equal(pending.status, 202);
+    assert.deepEqual(await pending.json(), { status: 'awaiting_scan' });
+    assert.equal((await callFile(runtimeHandler, { stage: runtimeStage })).status, 404);
+    assert.equal((await callFile(runtimeHandler, { stage: runtimeStage, origin: 'https://unrelated.example.invalid' })).status, 403);
+    const runtimeToken = sql(`select object_token from private.file_upload_stages where id='${runtimeStage}';`).toString().trim();
+    workerPaths.push(org + '/' + runtimeToken);
+  }
+
   const other = await users[1].api.from('accounts').select('id').eq('id', results[0].data);
   assert.ifError(other.error); assert.deepEqual(other.data, [], 'another user must not see the record');
   const recipient = sql(`select id from public.memberships where organization_id='${org}' and user_id='${users[1].id}';`).toString().trim();
@@ -146,7 +237,6 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
   assert.equal((await changeShare()).error?.code, '42501', 'sharing requires a separate permission');
   sql(`insert into public.role_permissions(organization_id,role_id,permission_code)
     select organization_id,id,'account.share' from public.roles where organization_id='${org}' and code='intake_staff';`);
-  assert.equal((await changeShare(passwordOnly)).error?.code, '42501', 'sharing requires current MFA');
   assert.equal((await changeShare(users[1].api, { p_recipient: member })).error?.code, '42501', 'a nonowner cannot share');
   const foreignMember = sql(`select private.provision_intake_staff('${foreignOrg}','${users[1].id}','Synthetic user',null,'${randomUUID()}');`).toString().trim();
   assert.equal((await changeShare(users[0].api, { p_recipient: foreignMember })).error?.code, '42501', 'sharing cannot cross organizations');
@@ -158,9 +248,6 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
   const visibleShare = await readShared(users[1].api);
   assert.ifError(visibleShare.error);
   assert.deepEqual(visibleShare.data, [{ id: share.p_resource }]);
-  const recipientAal1 = client(anon);
-  assert.ifError((await recipientAal1.auth.signInWithPassword({ email: users[1].email, password })).error);
-  assert.deepEqual((await readShared(recipientAal1)).data, [], 'shared records require recipient MFA');
   const otherAccount = raced.find(result => !result.error).data;
   assert.deepEqual((await users[1].api.from('accounts').select('id').eq('id', otherAccount)).data, []);
   assert.ok((await users[1].api.from('accounts').update({name:'Forbidden'}).eq('id', share.p_resource)).error);
@@ -185,7 +272,9 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
   assert.deepEqual((await readShared(users[1].api)).data, [], 'deactivating the owner invalidates the share');
   assert.equal((await reserve()).error?.code, '42501', 'inactive membership cannot replay a reservation');
   assert.ok((await ownerStorage.download(path)).error, 'inactive membership cannot download quarantined bytes using an existing token');
-  assert.ifError((await storage.remove([path])).error);
+  assert.equal((await callFile(cleanScanner)).status, 404, 'deactivation denies downloads with an existing token');
+  assert.equal((await users[0].api.rpc('crm_record_files', listArgs)).error?.code, '42501');
+  assert.ifError((await storage.remove([path, ...workerPaths])).error);
 
   const administratorEmail = `admin-${run}@example.invalid`;
   const administratorAuth = await admin.auth.admin.createUser({
@@ -203,19 +292,137 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
   const pilotApi = client(anon);
   assert.ifError((await pilotApi.auth.signInWithPassword({ email: administratorEmail, password })).error);
   const directory = api => api.rpc('staff_directory', { p_org: foreignOrg });
-  assert.equal((await directory(pilotApi)).error?.code, '42501', 'administrator needs MFA');
+  const pilotClaims = await pilotApi.auth.getClaims();
+  assert.ifError(pilotClaims.error);
+  assert.equal(pilotClaims.data.claims.aal, 'aal1', 'administration uses an email/password session');
   assert.equal((await directory(users[1].api)).error?.code, '42501', 'intake staff cannot read the directory');
-  const factor = await pilotApi.auth.mfa.enroll({ factorType: 'totp' });
-  assert.ifError(factor.error);
-  const verify = await pilotApi.auth.mfa.challengeAndVerify({
-    factorId: factor.data.id, code: totp(factor.data.totp.secret),
+  const readSettings = (api = pilotApi, organization = foreignOrg) =>
+    api.rpc('read_operating_policy_settings', { p_org: organization });
+  const initialSettings = await readSettings();
+  assert.ifError(initialSettings.error);
+  assert.equal(initialSettings.data.expense, null);
+  assert.equal(initialSettings.data.tender, null);
+  assert.equal((await readSettings(users[1].api)).error?.code, '42501');
+  assert.equal((await readSettings(pilotApi, org)).error?.code, '42501');
+  const expenseRule = { category: 'MILEAGE', grade: '*', geography: '*', travel_type: '*', calculation: 'mileage',
+    rate: '12.50', cap: '200.00', receipt_threshold: null, partial_day: 'none', tax_included: false,
+    prepayment_allowed: false, exception_allowed: false, travel_approval_required: true };
+  const publish = overrides => pilotApi.rpc('publish_operating_policy_settings', {
+    p_org: foreignOrg, p_section: 'expense', p_expected: null, p_effective_on: initialSettings.data.today,
+    p_settings: { rules: [expenseRule], routes: [] }, p_key: randomUUID(), ...overrides,
   });
-  assert.ifError(verify.error);
+  assert.equal((await publish({ p_settings: { rules: [{ ...expenseRule, rate: '0.123' }], routes: [] } })).error?.code, '22023');
+  assert.equal((await publish({ p_settings: { rules: [expenseRule, expenseRule], routes: [] } })).error?.code, '22023');
+  const overlap = await publish({ p_settings: { rules: [
+    { ...expenseRule, grade: 'FIELD' }, { ...expenseRule, geography: 'WEST' },
+  ], routes: [] } });
+  assert.equal(overlap.error?.code, '22023');
+  const publishKey = randomUUID();
+  const first = await publish({ p_key: publishKey });
+  assert.ifError(first.error);
+  assert.equal((await publish({ p_key: publishKey })).data, first.data);
+  assert.equal((await publish({})).error?.code, 'PT409');
+  const updated = await publish({ p_expected: first.data, p_settings: { rules: [{ ...expenseRule, rate: '14.00' }], routes: [] } });
+  assert.ifError(updated.error);
+  assert.notEqual(updated.data, first.data);
+  assert.equal((await readSettings()).data.expense.settings.rules[0].rate, '14.00');
+  assert.equal(sql(`select settings->'rules'->0->>'rate' from private.operating_policy_versions where id='${first.data}';`).toString().trim(), '12.50');
+  const tenderRoute = { process: 'waiver', subject: null, primary: foreignMember, alternate: null, limit: '2000.00' };
+  assert.equal((await publish({ p_section: 'tender', p_settings: { rules: [], routes: [{ ...tenderRoute, subject: foreignMember }] } })).error?.code, '22023');
+  assert.equal((await publish({ p_section: 'tender', p_settings: { rules: [], routes: [{ ...tenderRoute, primary: recipient }] } })).error?.code, '22023');
+  const tenderPolicy = await publish({ p_section: 'tender', p_settings: { rules: [], routes: [tenderRoute] } });
+  assert.ifError(tenderPolicy.error);
+  assert.equal((await readSettings()).data.tender.id, tenderPolicy.data);
+  assert.equal(sql(`select count(*) from private.audit_events where request_id='${publishKey}' and action='admin.policy.publish';`).toString().trim(), '1');
+
   const staff = await directory(pilotApi);
   assert.ifError(staff.error);
   assert.ok(staff.data.some(row => row.membership_id === adminMember && !row.can_deactivate));
   assert.ok(staff.data.some(row => row.membership_id === foreignMember && row.can_deactivate));
   assert.equal((await pilotApi.rpc('staff_directory', { p_org: org })).error?.code, '42501');
+
+  // A scoped reader, record owner and scope administrator are three separate memberships.
+  const secondRep = sql(`select private.provision_intake_staff(
+    '${foreignOrg}','${users[0].id}','Synthetic colleague',null,'${randomUUID()}'
+  );`).toString().trim();
+  const territory = randomUUID();
+  const outsideTerritory = randomUUID();
+  const scopedRole = randomUUID();
+  sql(`insert into private.territories(id,organization_id,name)
+    values ('${territory}','${foreignOrg}','Synthetic North'),('${outsideTerritory}','${org}','Synthetic Other');
+    insert into public.roles(id,organization_id,code,name,requires_mfa)
+    values ('${scopedRole}','${foreignOrg}','scope_fixture','Synthetic scoped reader',true);
+    insert into public.member_roles(organization_id,membership_id,role_id,effective_from)
+    values ('${foreignOrg}','${foreignMember}','${scopedRole}',now());
+    insert into public.role_permissions(organization_id,role_id,permission_code)
+    values ('${foreignOrg}','${scopedRole}','account.read.team'),('${foreignOrg}','${scopedRole}','account.read.territory');
+  `);
+  const changeScope = (action, subject, target, key = randomUUID(), api = pilotApi) =>
+    api.rpc('change_staff_scope', { p_org: foreignOrg, p_action: action, p_subject: subject, p_target: target, p_key: key });
+  assert.equal((await changeScope('set_manager', secondRep, foreignMember)).error?.code, '42501', 'pilot administrators have no automatic scope configuration grant');
+  sql(`insert into public.role_permissions(organization_id,role_id,permission_code)
+    select organization_id,id,'staff.scope.manage' from public.roles where organization_id='${foreignOrg}' and code='super_admin';`);
+  assert.equal((await changeScope('set_manager', secondRep, foreignMember, randomUUID(), users[1].api)).error?.code, '42501');
+  assert.equal((await changeScope('set_manager', secondRep, adminMember)).error?.code, '42501', 'admins cannot make themselves the recipient of a reporting change');
+  assert.equal((await changeScope('grant_territory', adminMember, territory)).error?.code, '42501', 'admins cannot grant their own territory');
+  assert.equal((await changeScope('grant_territory', foreignMember, outsideTerritory)).error?.code, '42501', 'territory cannot cross organizations');
+  const secondAccount = await users[0].api.rpc('create_intake_record', { ...args, p_org: foreignOrg, p_key: randomUUID() });
+  assert.ifError(secondAccount.error);
+  const visibleAccount = async () => {
+    const result = await users[1].api.from('accounts').select('id').eq('id', secondAccount.data);
+    assert.ifError(result.error);
+    return result.data.map(record => record.id);
+  };
+  assert.deepEqual(await visibleAccount(), [], 'scope role alone gives no access without an assignment');
+  const managerKey = randomUUID();
+  const managerResults = await Promise.all(Array.from({ length: 3 }, () =>
+    changeScope('set_manager', secondRep, foreignMember, managerKey)));
+  managerResults.forEach(result => assert.ifError(result.error));
+  assert.equal(new Set(managerResults.map(result => result.data)).size, 1);
+  assert.equal((await changeScope('set_manager', foreignMember, secondRep)).error?.code, 'PT409', 'cycles are rejected');
+  assert.deepEqual(await visibleAccount(), [secondAccount.data]);
+  assert.ok((await users[1].api.from('accounts').update({name:'Forbidden'}).eq('id', secondAccount.data)).error, 'team readers cannot edit');
+  assert.ifError((await changeScope('set_manager', secondRep, null)).error);
+  assert.deepEqual(await visibleAccount(), [], 'removing the reporting line invalidates team access');
+  assert.equal((await changeScope('set_record_territory', secondAccount.data, territory)).error?.code, '42501', 'changing another owner record requires organization read scope');
+  sql(`insert into public.role_permissions(organization_id,role_id,permission_code)
+    select organization_id,id,'account.read.organization' from public.roles where organization_id='${foreignOrg}' and code='super_admin';`);
+  assert.ifError((await changeScope('set_record_territory', secondAccount.data, territory)).error);
+  assert.ifError((await changeScope('grant_territory', foreignMember, territory)).error);
+  assert.deepEqual(await visibleAccount(), [secondAccount.data]);
+  assert.ifError((await changeScope('revoke_territory', foreignMember, territory)).error);
+  assert.deepEqual(await visibleAccount(), []);
+  assert.equal(sql(`select count(*) from private.audit_events where request_id='${managerKey}' and action='staff.scope.set_manager';`).toString().trim(), '1');
+
+  const delegatedRole = randomUUID();
+  const restrictedRole = randomUUID();
+  sql(`insert into public.roles(id,organization_id,code,name,requires_mfa,delegable)
+    values ('${delegatedRole}','${foreignOrg}','delegable_fixture','Synthetic delegation',true,true),
+           ('${restrictedRole}','${foreignOrg}','staff_fixture','Synthetic privileged role',true,true);
+    insert into public.role_permissions(organization_id,role_id,permission_code)
+    values ('${foreignOrg}','${delegatedRole}','lead.read.team'),
+           ('${foreignOrg}','${restrictedRole}','staff.scope.manage');
+  `);
+  const changeRole = (action, memberId, roleId = delegatedRole, key = randomUUID(), api = pilotApi) =>
+    api.rpc('change_staff_role', { p_org: foreignOrg, p_action: action, p_member: memberId, p_role: roleId, p_key: key });
+  assert.equal((await changeRole('grant', foreignMember)).error?.code, '42501', 'no automatic role delegation grant');
+  sql(`insert into public.role_permissions(organization_id,role_id,permission_code)
+    select organization_id,id,'staff.role.manage' from public.roles where organization_id='${foreignOrg}' and code='super_admin';`);
+  assert.equal((await changeRole('grant', adminMember)).error?.code, '42501', 'self grant denied');
+  assert.equal((await changeRole('grant', foreignMember, restrictedRole)).error?.code, '42501', 'staff administration roles cannot be delegated');
+  assert.equal((await changeRole('grant', foreignMember, scopedRole)).error?.code, '42501', 'operator must opt a role into delegation');
+  assert.equal((await changeRole('grant', recipient)).error?.code, '42501', 'cross-organization role grants are denied');
+  const grantKey = randomUUID();
+  const roleGrants = await Promise.all(Array.from({ length: 3 }, () =>
+    changeRole('grant', foreignMember, delegatedRole, grantKey)));
+  roleGrants.forEach(result => assert.ifError(result.error));
+  assert.equal(new Set(roleGrants.map(result => result.data)).size, 1);
+  assert.equal((await changeRole('revoke', foreignMember, delegatedRole, grantKey)).error?.code, 'PT409');
+  const inherited = () => users[1].api.from('member_roles').select('id').eq('id', roleGrants[0].data);
+  assert.equal((await inherited()).data.length, 1);
+  assert.ifError((await changeRole('revoke', foreignMember)).error);
+  assert.deepEqual((await inherited()).data, [], 'the existing token loses a revoked role');
+  assert.equal(sql(`select count(*) from private.audit_events where request_id='${grantKey}' and action='staff.role.grant';`).toString().trim(), '1');
 
   const deactivate = (target, key = randomUUID(), api = pilotApi) =>
     api.rpc('deactivate_staff', { p_org: foreignOrg, p_member: target, p_key: key });
@@ -225,11 +432,19 @@ test('real local Auth, API and Storage enforce record scope, quarantine and deac
   const owned = await users[1].api.rpc('create_intake_record', { ...args, p_org: foreignOrg, p_key: randomUUID() });
   assert.ifError(owned.error);
   assert.equal((await deactivate(foreignMember)).error?.code, 'PT409', 'open records must be reassigned');
-  sql(`update public.resources set archived_at=now() where id='${owned.data}';`);
-  const deactivateKey = randomUUID();
-  const disabled = await deactivate(foreignMember, deactivateKey);
+  const handover = (successor = secondRep, key = randomUUID()) => pilotApi.rpc('offboard_staff', {
+    p_org: foreignOrg, p_member: foreignMember, p_successor: successor, p_key: key,
+  });
+  assert.equal((await handover()).error?.code, '42501', 'handover requires a separate permission');
+  sql(`insert into public.role_permissions(organization_id,role_id,permission_code)
+    select organization_id,id,'staff.reassign' from public.roles where organization_id='${foreignOrg}' and code='super_admin';`);
+  assert.equal((await handover(adminMember)).error?.code, '42501', 'administrator cannot transfer records to themselves');
+  const handoverKey = randomUUID();
+  const disabled = await handover(secondRep, handoverKey);
   assert.ifError(disabled.error);
-  assert.equal((await deactivate(foreignMember, deactivateKey)).data, disabled.data);
+  assert.equal((await handover(secondRep, handoverKey)).data, disabled.data);
   assert.equal((await users[1].api.from('memberships').select('id').eq('id', foreignMember)).data.length, 0, 'existing token loses access');
-  assert.equal(sql(`select count(*) from private.audit_events where request_id='${deactivateKey}' and action='staff.deactivate';`).toString().trim(), '1');
+  assert.deepEqual((await users[0].api.from('accounts').select('id').eq('id', owned.data)).data, [{ id: owned.data }]);
+  assert.equal(sql(`select count(*) from private.audit_events where request_id='${handoverKey}'
+    and action in ('staff.offboard','resource.owner.transfer');`).toString().trim(), '2');
 });

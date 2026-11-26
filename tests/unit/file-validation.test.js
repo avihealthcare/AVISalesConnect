@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { inspectUpload, readReservedUpload } from '../../packages/domain/file-validation.js';
+import { inspectUpload, readReservedUpload } from '../../supabase/functions/_shared/file-validation.js';
 
 const examples = [
   ['application/pdf', [0x25, 0x50, 0x44, 0x46, 0x2d]],

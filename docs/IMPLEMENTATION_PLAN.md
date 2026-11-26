@@ -15,3 +15,18 @@ The [current master development brief](MASTER-DEVELOPMENT-PROMPT-2026-11-26.md) 
 | 9. Release readiness | Run the full security, browser, responsiveness, PWA and acceptance suite. Rehearse backup and recovery and prepare versioned staging and production configurations. Record UAT evidence and obtain authorization for any production deployment or live database changes. |
 
 The [engineering roadmap](ROADMAP.md), [acceptance matrix](acceptance-matrix.md) and [progress log](PROGRESS.md) track implementation dependencies, evidence and unresolved work. Before writing a module, update its relational model and permission rules, then implement and verify database behavior before exposing it in the UI.
+
+## Tender and expense acceptance
+
+The security milestone is the dependency for both workflows. In particular, a submitted tender or claim must reference an immutable, authorized file version. The operator must be able to explain who acted, which version they acted on, and what a retry did.
+
+| Workflow | Build and verify in order |
+| --- | --- |
+| Tender preparation | Register one portal/reference per organization. Add lots and current deadline versions. On a corrigendum, retain the prior version and cancel its pending notifications in the same transaction. Validate mandatory checklist items, usable evidence and independent waiver authority before allowing preparation to advance. |
+| Tender submission and execution | Bind the authorized submission to the exact reviewed lots, documents and deviations. Store acknowledgement and actual submission time. Verify mixed lot awards, incremental dispatch/installation/acceptance, and continued reminders for unreleased EMD or guarantees after closing. |
+| Expense preparation and approval | Publish effective-dated configured policies. Freeze amounts, rule versions and authorized receipts on submission. Select eligible approvers explicitly and leave unrouteable claims waiting for routing. Verify that two people cannot approve with an outdated version or approve their own expense. |
+| Expense settlement | Apply confirmed advance balances and compute payable amounts under locks using exact decimal arithmetic. Record partial payments and reversals as immutable transactions with evidence. Verify concurrent reimbursements, duplicate prevention, reconciliation and finance export permissions. |
+
+Expense rates, limits, categories, alternates and tender bid/waiver authorities require AVI's approved policies before a real approval or submission. The implementation and synthetic tests can use separately labeled fixtures. Pending work remains within Phase 1.
+
+Use the [AVI SalesConnect Gemini Canvas reference](https://gemini.google.com/share/20af04e7b3cb9b8bd6a06ca682b1c250) for the navigation layout, header, dashboard cards, pipeline panel and the lead, tender, expense and administration screen layouts. Use the written SRS for module behavior, authorization and acceptance. The reference's demonstration counts and identities do not seed the application.

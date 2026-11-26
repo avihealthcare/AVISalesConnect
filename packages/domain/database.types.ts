@@ -393,6 +393,7 @@ export type Database = {
           organization_id: string
           owner_membership_id: string | null
           resource_type: string
+          territory_id: string | null
         }
         Insert: {
           archived_at?: string | null
@@ -401,6 +402,7 @@ export type Database = {
           organization_id: string
           owner_membership_id?: string | null
           resource_type: string
+          territory_id?: string | null
         }
         Update: {
           archived_at?: string | null
@@ -409,6 +411,7 @@ export type Database = {
           organization_id?: string
           owner_membership_id?: string | null
           resource_type?: string
+          territory_id?: string | null
         }
         Relationships: [
           {
@@ -463,6 +466,7 @@ export type Database = {
       roles: {
         Row: {
           code: string
+          delegable: boolean
           id: string
           name: string
           organization_id: string
@@ -470,6 +474,7 @@ export type Database = {
         }
         Insert: {
           code: string
+          delegable?: boolean
           id?: string
           name: string
           organization_id: string
@@ -477,6 +482,7 @@ export type Database = {
         }
         Update: {
           code?: string
+          delegable?: boolean
           id?: string
           name?: string
           organization_id?: string
@@ -497,6 +503,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      read_sales_field: {
+        Args: { p_org: string; p_kind: string; p_offset?: number };
+        Returns: Json;
+      };
+      run_sales_field: {
+        Args: { p_org: string; p_kind: string; p_action: string; p_key: string; p_data: Json };
+        Returns: Json;
+      };
       change_crm_record_share: {
         Args: {
           p_action: string
@@ -508,12 +522,51 @@ export type Database = {
         }
         Returns: string
       }
+      change_staff_role: {
+        Args: { p_action: string; p_key: string; p_member: string; p_org: string; p_role: string }
+        Returns: string
+      }
+      change_staff_scope: {
+        Args: {
+          p_action: string
+          p_key: string
+          p_org: string
+          p_subject: string
+          p_target: string | null
+        }
+        Returns: string
+      }
       create_intake_record: {
         Args: { p_input: Json; p_key: string; p_kind: string; p_org: string }
         Returns: string
       }
+      crm_record_files: {
+        Args: { p_offset: number; p_org: string; p_resource: string }
+        Returns: Array<{ created_at: string; file_name: string; id: string; status: string }>
+      }
       deactivate_staff: {
         Args: { p_key: string; p_member: string; p_org: string }
+        Returns: string
+      }
+      file_worker_lookup: {
+        Args: { p_download: boolean; p_session: string; p_stage: string; p_user: string }
+        Returns: Json
+      }
+      file_worker_transition: {
+        Args: {
+          p_action: string
+          p_hash: string
+          p_lease: string | null
+          p_scanner: string | null
+          p_session: string
+          p_stage: string
+          p_user: string
+          p_verdict: string | null
+        }
+        Returns: string
+      }
+      offboard_staff: {
+        Args: { p_key: string; p_member: string; p_org: string; p_successor: string }
         Returns: string
       }
       progress_lead: {
@@ -524,6 +577,21 @@ export type Database = {
           p_key: string
           p_org: string
           p_version: number
+        }
+        Returns: string
+      }
+      read_operating_policy_settings: {
+        Args: { p_org: string }
+        Returns: Json
+      }
+      publish_operating_policy_settings: {
+        Args: {
+          p_org: string
+          p_section: string
+          p_expected: string | null
+          p_effective_on: string
+          p_settings: Json
+          p_key: string
         }
         Returns: string
       }

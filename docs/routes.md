@@ -14,3 +14,5 @@ Routes are a design outline, not implemented screens. All require an active auth
 - /reports, /operations and /settings: permission-scoped reporting, integration health and administration
 
 Detailed screen requirements are SC-01 through SC-19 in requirements.md. Final routes must follow the full screen register and authorization map.
+
+The pilot sidebar currently switches workspaces within the main application. It includes lead CSV preview/import, distributor accounts, customer sites and contacts, installed equipment, products, personal attendance and visit work, customer-linked tasks, external quote revisions and order references, demo records, tenders, travel and expense claims, personal targets and source/stage reports. Dedicated detail URLs from the proposed route map still require implementation.

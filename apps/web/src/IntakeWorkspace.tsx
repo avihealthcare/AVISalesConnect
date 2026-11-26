@@ -2,19 +2,35 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
 import { StaffAdministration } from './StaffAdministration';
+import { RecordFiles } from './RecordFiles';
+import { PolicySettings } from './PolicySettings';
+import { LeadImport } from './LeadImport';
+import { Reports } from './Reports';
+import { Tenders } from './Tenders';
+import { Expenses } from './Expenses';
+import { Dashboard } from './Dashboard';
+import { SalesField, type SalesFieldKind } from './SalesField';
+import { RecordSearch, containsTerm } from './RecordSearch';
 
-type Screen = 'home' | 'accounts' | 'leads' | 'opportunities' | 'administration';
-type Account = { id: string; name: string; account_type: string };
-type Lead = { id: string; display_number: number; prospect_name: string; source: string; received_at: string; lifecycle: string; contact_route: string | null; requirement_text: string | null; account_id: string | null; row_version: number; next_action: string | null; next_action_due_at: string | null };
+type Screen = 'home' | 'accounts' | 'leads' | 'opportunities' | 'administration' | 'settings' | 'distributors' | 'reports' | 'tenders' | 'expenses' | SalesFieldKind;
+type LeadView = 'all' | 'active' | 'overdue';
+type RecordOwner = { resources: { owner_membership_id: string | null } | null };
+type Account = { id: string; name: string; account_type: string } & RecordOwner;
+type Lead = { id: string; display_number: number; prospect_name: string; source: string; received_at: string; lifecycle: string; contact_route: string | null; requirement_text: string | null; account_id: string | null; row_version: number; next_action: string | null; next_action_due_at: string | null } & RecordOwner;
 type OrganizationMembership = { id: string; organization_id: string; organizations: { name: string } | null };
 const manualSources = ['Telephone', 'Email', 'WhatsApp', 'Website', 'Referral', 'Event', 'Other'];
 const leadSources = [...manualSources, 'CSV', 'IndiaMART'];
 const timestamp = new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
 
-function IntakeList({ db, organization, screen }: { db: SupabaseClient<Database>; organization: string; screen: 'accounts' | 'leads' }) {
+function IntakeList({ db, organization, membership, screen, initialName, initialView, canImport }: {
+  db: SupabaseClient<Database>; organization: string; membership?: string;
+  screen: 'accounts' | 'leads' | 'distributors'; initialName: string; initialView: LeadView; canImport?: boolean;
+}) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [filter, setFilter] = useState('');
+  const [nameFilter, setNameFilter] = useState(initialName);
+  const [leadView, setLeadView] = useState(initialView);
   const [page, setPage] = useState(0);
   const [more, setMore] = useState(false);
   const [revision, refresh] = useState(0);
@@ -25,6 +41,18 @@ function IntakeList({ db, organization, screen }: { db: SupabaseClient<Database>
   const [saved, setSaved] = useState(false);
   const pending = useRef<{ key: string; body: string } | null>(null);
   const isLead = screen === 'leads';
+  const isDistributor = screen === 'distributors';
+  const [fileActions, setFileActions] = useState<string[]>([]);
+
+  useEffect(() => {
+    let current = true;
+    void db.from('role_permissions').select('permission_code').eq('organization_id', organization)
+      .in('permission_code', ['file.stage', 'file.download']).then(result => {
+        if (current) setFileActions((result.data ?? []).map(row => row.permission_code));
+      });
+    return () => { current = false; };
+  }, [db, organization]);
+  const canUploadFiles = fileActions.includes('file.stage');
 
   useEffect(() => {
     let active = true;
@@ -32,19 +60,24 @@ function IntakeList({ db, organization, screen }: { db: SupabaseClient<Database>
     setLoadError(false);
     (async () => {
       if (!isLead) {
-        const result = await db.from('accounts').select('id,name,account_type').eq('organization_id', organization)
-          .order('name').order('id').range(page * 25, page * 25 + 25);
+        let query = db.from('accounts').select('id,name,account_type,resources(owner_membership_id)').eq('organization_id', organization);
+        if (isDistributor) query = query.eq('account_type', 'Distributor');
+        if (nameFilter) query = query.ilike('name', containsTerm(nameFilter));
+        const result = await query.order('name').order('id').range(page * 25, page * 25 + 25);
         if (!active) return;
         setAccounts((result.data ?? []).slice(0, 25));
         setMore((result.data?.length ?? 0) > 25);
         setLoadError(Boolean(result.error));
       } else {
-        let query = db.from('leads').select('id,display_number,prospect_name,source,received_at,lifecycle,contact_route,requirement_text,account_id,row_version,next_action,next_action_due_at')
+        let query = db.from('leads').select('id,display_number,prospect_name,source,received_at,lifecycle,contact_route,requirement_text,account_id,row_version,next_action,next_action_due_at,resources(owner_membership_id)')
           .eq('organization_id', organization);
         if (filter) query = query.eq('source', filter);
+        if (nameFilter) query = query.ilike('prospect_name', containsTerm(nameFilter));
+        if (leadView !== 'all') query = query.not('lifecycle', 'in', '(Converted,Disqualified)');
+        if (leadView === 'overdue') query = query.lt('next_action_due_at', new Date().toISOString());
         const [result, links] = await Promise.all([
           query.order('received_at', { ascending: false }).order('id').range(page * 25, page * 25 + 25),
-          db.from('accounts').select('id,name,account_type').eq('organization_id', organization).order('name').limit(100)
+          db.from('accounts').select('id,name,account_type,resources(owner_membership_id)').eq('organization_id', organization).order('name').limit(100)
         ]);
         if (!active) return;
         setLeads((result.data ?? []).slice(0, 25));
@@ -55,7 +88,7 @@ function IntakeList({ db, organization, screen }: { db: SupabaseClient<Database>
       setLoading(false);
     })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
     return () => { active = false; };
-  }, [db, organization, isLead, filter, page, revision]);
+  }, [db, organization, isLead, isDistributor, filter, nameFilter, leadView, page, revision]);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -78,7 +111,7 @@ function IntakeList({ db, organization, screen }: { db: SupabaseClient<Database>
       prospect_name: field('prospect_name'), source: field('source'), received_at: received!.toISOString(),
       contact_route: field('contact_route') || null, missing_contact_reason: field('missing_contact_reason') || null,
       requirement_text: field('requirement_text') || null, account_id: field('account_id') || null
-    } : { name: field('name'), account_type: field('account_type') };
+    } : { name: field('name'), account_type: isDistributor ? 'Distributor' : field('account_type') };
     const body = JSON.stringify(input);
     if (pending.current?.body !== body) pending.current = { body, key: crypto.randomUUID() };
     setBusy(true);
@@ -101,9 +134,11 @@ function IntakeList({ db, organization, screen }: { db: SupabaseClient<Database>
     } finally { setBusy(false); }
   }
 
-  return <div className="workspace-grid">
+  return <>
+    {isLead && canImport && <LeadImport db={db} organization={organization} onSaved={() => { setPage(0); refresh(value => value + 1); }} />}
+    <div className="workspace-grid">
     <section className="panel" aria-labelledby="create-title">
-      <h2 id="create-title">{isLead ? 'Capture a lead' : 'Add a customer'}</h2>
+      <h2 id="create-title">{isLead ? 'Capture a lead' : isDistributor ? 'Add a distributor' : 'Add a customer'}</h2>
       <form onSubmit={create}>
         {isLead ? <>
           <label htmlFor="prospect_name">Customer or contact name</label><input id="prospect_name" name="prospect_name" required maxLength={200} />
@@ -115,49 +150,163 @@ function IntakeList({ db, organization, screen }: { db: SupabaseClient<Database>
           <label htmlFor="requirement_text">Requirement or original message</label><textarea id="requirement_text" name="requirement_text" maxLength={10000} rows={3} />
         </> : <>
           <label htmlFor="name">Customer name</label><input id="name" name="name" required maxLength={200} />
-          <label htmlFor="account_type">Customer type</label><select id="account_type" name="account_type">{['Hospital','Institution','Distributor','Other'].map(type => <option key={type}>{type}</option>)}</select>
+          {!isDistributor && <><label htmlFor="account_type">Customer type</label><select id="account_type" name="account_type">{['Hospital','Institution','Distributor','Other'].map(type => <option key={type}>{type}</option>)}</select></>}
         </>}
-        <button disabled={busy}>{busy ? 'Saving…' : (isLead ? 'Save lead' : 'Save customer')}</button>
+        <button disabled={busy}>{busy ? 'Saving…' : (isLead ? 'Save lead' : isDistributor ? 'Save distributor' : 'Save customer')}</button>
       </form>
       {saved && <p role="status">Record saved.</p>}
       {error && <p role="alert" className="error">{error}</p>}
     </section>
     <section className="panel" aria-labelledby="list-title">
-      <h2 id="list-title">{isLead ? 'Leads' : 'Customers'}</h2>
+      <h2 id="list-title">{isLead ? 'Leads' : isDistributor ? 'Distributors' : 'Customers'}</h2>
+      <label htmlFor="record-name-filter">Search by name</label>
+      <input id="record-name-filter" value={nameFilter} maxLength={140}
+        onChange={event => { setNameFilter(event.target.value); setPage(0); }} />
+      {isLead && <label>Lead view<select value={leadView} onChange={event => { setLeadView(event.target.value as LeadView); setPage(0); }}>
+        <option value="all">All leads</option><option value="active">Active leads</option><option value="overdue">Overdue follow-ups</option>
+      </select></label>}
       {isLead && <><label htmlFor="source-filter">Filter by source</label><select id="source-filter" value={filter} onChange={e => { setFilter(e.target.value); setPage(0); }}><option value="">All sources</option>{leadSources.map(source => <option key={source}>{source}</option>)}</select></>}
       {loading ? <p role="status">Loading records…</p> : loadError ? <p role="alert">Unable to load records. <button className="link" onClick={() => refresh(value => value + 1)}>Retry</button></p> : isLead ? (
         leads.length ? <ul className="records">{leads.map(lead => <li key={lead.id}><strong>{lead.prospect_name}</strong><p>Lead {lead.display_number} · {lead.source} · {lead.lifecycle}</p><p>{timestamp.format(new Date(lead.received_at))} IST</p>{lead.contact_route && <p>{lead.contact_route}</p>}{lead.requirement_text && <p className="requirement">{lead.requirement_text}</p>}{lead.next_action && <p>Next action: {lead.next_action}{lead.next_action_due_at && ` · ${timestamp.format(new Date(lead.next_action_due_at))} IST`}</p>}
-        <LeadFollowUp db={db} organization={organization} lead={lead} refresh={() => refresh(value => value + 1)} /></li>)}</ul> : <p>No leads are visible for this selection.</p>
-      ) : accounts.length ? <ul className="records">{accounts.map(account => <li key={account.id}><strong>{account.name}</strong><p>{account.account_type}</p></li>)}</ul> : <p>No customers are visible.</p>}
+        <LeadFollowUp db={db} organization={organization} lead={lead} refresh={() => refresh(value => value + 1)} />
+        {membership && lead.resources?.owner_membership_id === membership && fileActions.length > 0 && <RecordFiles db={db} organization={organization} record={lead.id} canUpload={canUploadFiles} />}
+        </li>)}</ul> : <p>No leads are visible for this selection.</p>
+      ) : accounts.length ? <ul className="records">{accounts.map(account => <li key={account.id}><strong>{account.name}</strong><p>{account.account_type}</p>
+        {membership && account.resources?.owner_membership_id === membership && fileActions.length > 0 && <RecordFiles db={db} organization={organization} record={account.id} canUpload={canUploadFiles} />}
+        </li>)}</ul> : <p>{isDistributor ? 'No distributors are visible.' : 'No customers are visible.'}</p>}
       {!loading && !loadError && (page > 0 || more) && <div><button className="secondary" disabled={!page} onClick={() => setPage(value => value - 1)}>Previous</button><button className="secondary" disabled={!more} onClick={() => setPage(value => value + 1)}>Next</button></div>}
     </section>
-  </div>;
+  </div></>;
 }
 
-export function IntakeWorkspace({ db, memberships, signOut, busy }: { db: SupabaseClient<Database>; memberships: OrganizationMembership[]; signOut: () => void; busy: boolean }) {
+const navigation: { id: Screen; label: string; permission?: string; salesField?: boolean }[] = [
+  { id: 'home', label: 'Dashboard' }, { id: 'leads', label: 'Leads', permission: 'lead.read' },
+  { id: 'accounts', label: 'Hospitals and Customers', permission: 'account.read' },
+  { id: 'site', label: 'Customer Sites', permission: 'site.read', salesField: true },
+  { id: 'contact', label: 'Contacts', permission: 'contact.read', salesField: true },
+  { id: 'opportunities', label: 'Opportunities', permission: 'opportunity.read' },
+  { id: 'attendance_session', label: 'Attendance', permission: 'attendance_session.read', salesField: true },
+  { id: 'visit', label: 'Field Visits', permission: 'visit.read', salesField: true },
+  { id: 'visit_plan', label: 'Visit Planner', permission: 'visit_plan.read', salesField: true },
+  { id: 'task', label: 'Follow-ups and Tasks', permission: 'task.read', salesField: true },
+  { id: 'product', label: 'Products', permission: 'product.read', salesField: true },
+  { id: 'equipment', label: 'Installed Equipment', permission: 'equipment.read', salesField: true },
+  { id: 'quotation', label: 'Quotations', permission: 'quotation.read', salesField: true },
+  { id: 'financial_reference', label: 'Sales Orders', permission: 'financial_reference.read', salesField: true },
+  { id: 'demo', label: 'Demonstrations', permission: 'demo.read', salesField: true },
+  { id: 'distributors', label: 'Distributors', permission: 'account.read' },
+  { id: 'tenders', label: 'Tenders' },
+  { id: 'expenses', label: 'Expenses' },
+  { id: 'target', label: 'Sales Targets', permission: 'target.read', salesField: true },
+  { id: 'reports', label: 'Reports', permission: 'lead.read' },
+  { id: 'administration', label: 'Administration', permission: 'staff.directory.read' },
+  { id: 'settings', label: 'Settings' },
+];
+const navigationPermissions = navigation.flatMap(item => item.permission ? [item.permission] : []);
+
+export function IntakeWorkspace({ db, memberships, signOut, busy }: {
+  db: SupabaseClient<Database>; memberships: OrganizationMembership[]; signOut: () => void; busy: boolean;
+}) {
   const [organization, selectOrganization] = useState(memberships[0].organization_id);
   const [screen, setScreen] = useState<Screen>('home');
-  const [adminOrganization, setAdminOrganization] = useState<string>();
-  const canViewAdministration = adminOrganization === organization;
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [initialName, setInitialName] = useState('');
+  const [initialView, setInitialView] = useState<LeadView>('all');
+  const [dark, setDark] = useState(() => localStorage.getItem('salesconnect-color-mode') === 'dark');
+  const [access, setAccess] = useState<{ organization: string; permissions: Set<string>; settings: boolean }>();
+  const current = memberships.find(member => member.organization_id === organization);
+  const permissions = access?.organization === organization ? access.permissions : undefined;
+  const canViewAdministration = permissions?.has('staff.directory.read');
+  const canViewSettings = access?.organization === organization && access.settings;
+  const canUseSearch = permissions?.has('account.read') || permissions?.has('lead.read');
   useEffect(() => {
     let current = true;
-    void db.from('role_permissions').select('permission_code').eq('organization_id', organization)
-      .eq('permission_code', 'staff.directory.read').limit(1).then(({ data, error }) => {
-        if (current) setAdminOrganization(!error && data?.length ? organization : undefined);
-      });
+    void Promise.all([
+      db.from('role_permissions').select('permission_code').eq('organization_id', organization)
+        .in('permission_code', [...navigationPermissions, 'lead.create']),
+      db.from('roles').select('id').eq('organization_id', organization).eq('code', 'super_admin').limit(1),
+    ]).then(([grants, role]) => {
+      if (current) setAccess({ organization, permissions: new Set((grants.data ?? []).map(row => row.permission_code)),
+        settings: !role.error && Boolean(role.data?.length) });
+    });
     return () => { current = false; };
   }, [db, organization]);
-  return <main className="workspace">
-    <header className="workspace-header"><div><p className="eyebrow">AVI Healthcare</p><h1>SalesConnect</h1></div>
-      <div><label htmlFor="organization">Organization</label><select id="organization" value={organization} onChange={e => { selectOrganization(e.target.value); setScreen('home'); }}>{memberships.map(m => <option key={m.id} value={m.organization_id}>{m.organizations?.name ?? 'Organization'}</option>)}</select></div>
-      <button className="secondary" onClick={signOut} disabled={busy}>Sign out</button>
-    </header>
-    <nav className="workspace-nav" aria-label="SalesConnect">{([['home','Home'],['accounts','Customers'],['leads','Leads'],['opportunities','Opportunities']] as const).map(([id,label]) => <button key={id} className="secondary" aria-current={id === screen ? 'page' : undefined} onClick={() => setScreen(id)}>{label}</button>)}
-      {canViewAdministration && <button className="secondary" aria-current={screen === 'administration' ? 'page' : undefined} onClick={() => setScreen('administration')}>Administration</button>}
-    </nav>
-    {screen === 'administration' ? canViewAdministration && <StaffAdministration key={organization} db={db} organization={organization} />
-      : screen === 'home' ? <section className="panel"><h2>Sales workspace</h2><p>Create customers, capture and follow up on inquiries, and view converted opportunities.</p></section> : screen === 'opportunities' ? <OpportunityList key={organization} db={db} organization={organization} /> : <IntakeList key={organization + screen} db={db} organization={organization} screen={screen} />}
-  </main>;
+
+  function go(destination: Screen, name = '', view: LeadView = 'all') {
+    setScreen(destination);
+    setSearchTerm('');
+    setInitialName(name);
+    setInitialView(view);
+    setNavigationOpen(false);
+  }
+  const selected = navigation.find(item => item.id === screen);
+  const title = searchTerm ? 'Search' : selected?.label;
+  return <div className="sales-shell" data-theme={dark ? 'dark' : 'light'} data-nav-open={navigationOpen} data-collapsed={collapsed}>
+    <a className="skip-link" href="#workspace-content">Skip to content</a>
+    <aside className="sales-sidebar" id="sales-navigation">
+      <div className="sales-brand"><span className="sales-mark" aria-hidden="true">AVI</span>
+        <div><strong>AVI SalesConnect</strong><span>AVI Healthcare Pvt. Ltd.</span></div>
+      </div>
+      <nav aria-label="SalesConnect">
+        {navigation.filter(item => (item.id !== 'settings' || canViewSettings)
+          && (!item.permission || permissions?.has(item.permission))).map(item =>
+          <button key={item.id} aria-current={!searchTerm && item.id === screen ? 'page' : undefined}
+            onClick={() => go(item.id)}>{item.label}</button>)}
+      </nav>
+    </aside>
+    <div className="sales-main">
+      <header className="sales-header">
+        <button className="secondary sales-toggle" aria-expanded={navigationOpen} aria-controls="sales-navigation"
+          onClick={() => setNavigationOpen(value => !value)}>Menu</button>
+        <button className="secondary desktop-nav-toggle" aria-expanded={!collapsed} aria-controls="sales-navigation"
+          onClick={() => setCollapsed(value => !value)}>{collapsed ? 'Show navigation' : 'Hide navigation'}</button>
+        <div className="breadcrumb"><button type="button" className="link" onClick={() => go('home')}>AVI SalesConnect</button>
+          <span aria-hidden="true">›</span><strong>{title}</strong></div>
+        {canUseSearch && <form className="global-search" onSubmit={event => {
+          event.preventDefault(); setSearchTerm(searchText.trim()); setNavigationOpen(false);
+        }}>
+          <input type="search" aria-label="Search hospitals and leads" maxLength={140} placeholder="Search hospitals and leads"
+            value={searchText} onChange={event => setSearchText(event.target.value)} />
+          <button className="secondary" disabled={!searchText.trim()}>Search</button>
+        </form>}
+        <div className="sales-actions">
+          {memberships.length > 1 ? <select aria-label="Organization" value={organization}
+            onChange={event => { selectOrganization(event.target.value); go('home'); }}>
+            {memberships.map(member => <option key={member.id} value={member.organization_id}>{member.organizations?.name ?? 'Organization'}</option>)}
+          </select> : <span className="active-organization">{current?.organizations?.name}</span>}
+          <button className="secondary" aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'} onClick={() => {
+            setDark(!dark); localStorage.setItem('salesconnect-color-mode', dark ? 'light' : 'dark');
+          }}>{dark ? 'Light' : 'Dark'}</button>
+          <button className="secondary" onClick={signOut} disabled={busy}>Sign out</button>
+        </div>
+      </header>
+      <main className="sales-content" id="workspace-content" tabIndex={-1}>
+        {searchTerm ? <RecordSearch key={organization + searchTerm} db={db} organization={organization} term={searchTerm} open={go} /> : <>
+        {screen === 'home' && <Dashboard key={organization} db={db} organization={organization} permissions={permissions}
+          openLeads={() => go('leads')} openActiveLeads={() => go('leads', '', 'active')}
+          openOverdueLeads={() => go('leads', '', 'overdue')}
+          openAccounts={() => go('accounts')} openOpportunities={() => go('opportunities')} />}
+        {screen === 'administration' && canViewAdministration && <StaffAdministration key={organization} db={db} organization={organization} />}
+        {screen === 'settings' && canViewSettings && <PolicySettings key={organization} db={db} organization={organization} />}
+        {screen === 'tenders' && current && <Tenders key={organization} db={db} organization={organization} membership={current.id} />}
+        {screen === 'expenses' && current && <Expenses key={organization} db={db} organization={organization} membership={current.id} />}
+        {screen === 'reports' && permissions?.has('lead.read') && <Reports key={organization}
+          db={db} organization={organization} canReadOpportunities={permissions.has('opportunity.read')} />}
+        {selected?.salesField && selected.permission && permissions?.has(selected.permission)
+          && <SalesField key={organization + screen} db={db} organization={organization} kind={screen as SalesFieldKind} />}
+        {screen === 'opportunities' && <><h1>{title}</h1><OpportunityList key={organization} db={db} organization={organization} /></>}
+        {(screen === 'accounts' || screen === 'leads' || screen === 'distributors') && <>
+          <h1>{screen === 'leads' ? 'Hospital & Institutional Leads' : title}</h1>
+          <IntakeList key={organization + screen + initialName + initialView} db={db} organization={organization}
+            membership={current?.id} canImport={permissions?.has('lead.create')} screen={screen} initialName={initialName} initialView={initialView} />
+        </>}
+        </>}
+      </main>
+    </div>
+  </div>;
 }
 
 function LeadFollowUp({ db, organization, lead, refresh }: {

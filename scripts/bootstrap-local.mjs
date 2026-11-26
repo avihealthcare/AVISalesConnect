@@ -14,7 +14,8 @@ async function bootstrap() {
   const [, , confirmDisposable, ...options] = process.argv;
   const invite = options.includes('--invite-link');
   const pilotAdmin = options.includes('--pilot-admin');
-  if (confirmDisposable !== '--disposable' || options.length !== Number(invite) + Number(pilotAdmin)) {
+  const fileAccess = options.includes('--file-access');
+  if (confirmDisposable !== '--disposable' || options.length !== Number(invite) + Number(pilotAdmin) + Number(fileAccess)) {
     throw new Error('Run npm run dev:bootstrap -- --disposable against the repository’s local test stack.');
   }
   const labels = JSON.parse(execFileSync('docker', ['inspect', '--format', '{{json .Config.Labels}}', container], {
@@ -54,6 +55,16 @@ async function bootstrap() {
   const provisionMembership = pilotAdmin
     ? `select private.provision_pilot_super_admin('${organization}', '${user}', 'Synthetic administrator', '${request}');`
     : `select private.provision_intake_staff('${organization}', '${user}', 'Synthetic staff', null, '${request}');`;
+  const fileRole = randomUUID();
+  const grantFiles = fileAccess ? `
+    insert into public.roles(id,organization_id,code,name,requires_mfa)
+    values ('${fileRole}','${organization}','file_fixture','Synthetic attachment access',true);
+    insert into public.role_permissions(organization_id,role_id,permission_code)
+    values ('${organization}','${fileRole}','file.stage'),('${organization}','${fileRole}','file.download');
+    insert into public.member_roles(organization_id,membership_id,role_id,effective_from)
+    select organization_id,id,'${fileRole}',now() from public.memberships
+    where organization_id='${organization}' and user_id='${user}';
+  ` : '';
   try {
     execFileSync('docker', ['exec', '-i', container, 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
       '-U', 'postgres', '-d', 'postgres', '-qAt'], {
@@ -62,6 +73,7 @@ async function bootstrap() {
         insert into public.organizations (id, name, timezone, base_currency, financial_year_start_month)
         values ('${organization}', 'Synthetic AVI SalesConnect', 'Asia/Kolkata', 'INR', 4);
         ${provisionMembership}
+        ${grantFiles}
         commit;
       `,
       stdio: ['pipe', 'pipe', 'pipe'],

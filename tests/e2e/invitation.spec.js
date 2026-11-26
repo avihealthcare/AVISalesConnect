@@ -1,9 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { totp } from '../support/totp.js';
 
-test('invited pilot admin sets a password and reaches administration after MFA', async ({ page }, info) => {
+test('invited pilot admin sets a password and reaches administration', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'The same invitation flow runs on all viewport sizes.');
   const output = execFileSync(process.execPath, ['scripts/bootstrap-local.mjs', '--disposable', '--invite-link', '--pilot-admin'], {
     encoding: 'utf8',
@@ -25,19 +24,61 @@ test('invited pilot admin sets a password and reaches administration after MFA',
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Verify your identity' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Sales workspace' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Set up an authenticator' }).click();
-  const setupKey = page.getByText(/^Setup key:/).locator('code');
-  await expect(setupKey).toBeVisible();
-  const secret = (await setupKey.textContent())?.trim();
-  if (!secret) throw new Error('The local authenticator setup key is missing.');
-  const secondsRemaining = 30 - Math.floor(Date.now() / 1000) % 30;
-  if (secondsRemaining < 4) await new Promise(resolve => setTimeout(resolve, secondsRemaining * 1000));
-  await page.getByLabel('Verification code').fill(totp(secret));
-  await page.getByRole('button', { name: 'Verify', exact: true }).click();
   await page.getByRole('button', { name: 'Administration' }).click();
   await expect(page.getByRole('heading', { name: 'Staff administration' })).toBeVisible();
   await expect(page.getByText('Synthetic administrator', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Deactivate access' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Add expense rule' }).click();
+  await page.getByLabel('Category code').fill('MILEAGE');
+  await page.getByLabel('Calculation').selectOption('mileage');
+  await page.getByLabel(/Rate per kilometre/).fill('12.50');
+  await page.getByRole('button', { name: 'Save new version' }).click();
+  await expect(page.getByText(/Saved version 1/)).toBeVisible();
+  await page.getByRole('button', { name: 'Tender approval' }).click();
+  await page.getByRole('button', { name: 'Add approval route' }).click();
+  await page.getByLabel('Approval step').selectOption('waiver');
+  await page.getByLabel('Primary approver').selectOption({ label: 'Synthetic administrator' });
+  await page.getByRole('button', { name: 'Save new version' }).click();
+  await expect(page.getByText(/Saved version 1/)).toBeVisible();
+  await page.getByRole('button', { name: 'Expense policy' }).click();
+  await expect(page.getByLabel(/Rate per kilometre/)).toHaveValue('12.50');
+
+  const navigation = page.getByRole('navigation', { name: 'SalesConnect' });
+  await navigation.getByRole('button', { name: 'Products', exact: true }).click();
+  await page.getByLabel('Model or product name').fill('Synthetic model');
+  await page.getByLabel('Product code').fill('SYN-CATALOG-1');
+  await page.getByLabel('Category', { exact: true }).fill('Testing');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Synthetic model', { exact: true })).toBeVisible();
+
+  await navigation.getByRole('button', { name: 'Attendance', exact: true }).click();
+  await page.getByLabel('Location exception reason').fill('Synthetic browser has no GPS hardware');
+  await page.getByRole('button', { name: 'Check in', exact: true }).click();
+  await page.getByRole('button', { name: 'Check out', exact: true }).click();
+  await page.getByLabel('Location exception reason').fill('Synthetic browser has no GPS hardware');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Pending Review', { exact: true })).toBeVisible();
+
+  await navigation.getByRole('button', { name: 'Tenders', exact: true }).click();
+  await page.getByRole('button', { name: 'Register tender', exact: true }).click();
+  await page.getByLabel('Procuring authority').fill('Synthetic authority');
+  await page.getByLabel('Portal', { exact: true }).fill('GeM');
+  await page.getByLabel('Bid reference').fill('SYN-BID-001');
+  await page.getByLabel('Submission deadline').fill('2036-12-01T12:00');
+  await page.getByRole('button', { name: 'Save tender', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'SYN-BID-001', exact: true })).toBeVisible();
+  await navigation.getByRole('button', { name: 'Expenses', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Travel & expenses', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'My travel', exact: true }).click();
+  await page.getByRole('button', { name: 'New travel request', exact: true }).click();
+  await page.getByLabel('Title', { exact: true }).fill('Synthetic training trip');
+  await page.getByLabel('Start date', { exact: true }).fill('2036-12-03');
+  await page.getByLabel('End date', { exact: true }).fill('2036-12-04');
+  await page.getByLabel('Geography code').fill('MAHARASHTRA');
+  await page.getByLabel('Travel type code').fill('DOMESTIC');
+  await page.getByLabel('Estimated amount').fill('5000');
+  await page.getByLabel('Business purpose').fill('Synthetic workflow check');
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Synthetic training trip', exact: true })).toBeVisible();
 });

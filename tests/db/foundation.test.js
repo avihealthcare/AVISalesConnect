@@ -13,8 +13,9 @@ const r1='40000000-0000-0000-0000-000000000001', r2='40000000-0000-0000-0000-000
 test('foundation enforces tenant, owner, membership and mutation boundaries', async () => {
   const db = new PGlite({ extensions: { btree_gist } });
   try {
-    await db.exec(`create role anon nologin; create role authenticated nologin; create schema auth;
+    await db.exec(`create role anon nologin; create role authenticated nologin; create role service_role nologin; create schema auth;
       create table auth.users(id uuid primary key);
+      create table auth.sessions(id uuid primary key, user_id uuid not null, aal text, not_after timestamptz);
       create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid$$;
       create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb)$$;
       grant usage on schema auth to authenticated, anon; grant execute on function auth.uid(), auth.jwt() to authenticated, anon;
@@ -67,7 +68,7 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     await assert.rejects(stage(o1,r1,m1,'business_document',26214401), /check constraint/i);
     await assert.rejects(stage(o1,r1,m1,'receipt',10,'25 hours'), /check constraint/i);
     await assert.rejects(db.exec('delete from private.file_upload_stages'), /append-only/i);
-    await assert.rejects(db.exec('truncate private.file_upload_stages'), /append-only/i);
+    await assert.rejects(db.exec('truncate private.file_upload_stages cascade'), /append-only/i);
     await db.exec(`insert into private.audit_events(organization_id,actor_membership_id,action,request_id) values ('${o1}','${m1}','test','60000000-0000-0000-0000-000000000001');
       insert into private.operation_receipts(organization_id,actor_membership_id,operation_key,command_type,request_hash,response_snapshot) values ('${o1}','${m1}','70000000-0000-0000-0000-000000000001','test',repeat('a',64),'{}');`);
     await assert.rejects(db.exec('delete from private.audit_events'), /append-only/i);
@@ -100,9 +101,8 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     assert.equal((await db.query(`select private.has_permission('${o1}','lead.read') as allowed`)).rows[0].allowed,true);
     assert.equal((await db.query(`select private.has_permission('${o2}','expense.approve') as allowed`)).rows[0].allowed,false);
     await db.exec(`select set_config('request.jwt.claim.sub','${u2}',false); select set_config('request.jwt.claims','{"aal":"aal1"}',false)`);
-    assert.equal((await db.query(`select private.has_permission('${o2}','expense.approve') as allowed`)).rows[0].allowed,false);
-    await db.exec(`select set_config('request.jwt.claims','{"aal":"aal2"}',false)`);
-    assert.equal((await db.query(`select private.has_permission('${o2}','expense.approve') as allowed`)).rows[0].allowed,true);
+    assert.equal((await db.query(`select private.has_permission('${o2}','expense.approve') as allowed`)).rows[0].allowed,true,
+      'a current assignment authorizes email/password sessions even if legacy permission metadata still has an MFA flag');
     await db.exec(`reset role; update public.member_roles set effective_to=now() where membership_id='${m2}'; set role authenticated;`);
     assert.equal((await db.query(`select private.has_permission('${o2}','expense.approve') as allowed`)).rows[0].allowed,false);
     await db.exec(`select set_config('request.jwt.claim.sub','${u1}',false)`);
@@ -190,8 +190,6 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     await assert.rejects(provision(),{code:'23505'});
     assert.equal((await db.query("select count(*)::int as n from private.audit_events where action='staff.provision'")).rows[0].n,1);
     await db.exec(`set role authenticated; select set_config('request.jwt.claims','{"aal":"aal1"}',false)`);
-    assert.equal((await db.query("select private.has_permission($1,'lead.create') as can",[o2])).rows[0].can,false);
-    await db.exec(`select set_config('request.jwt.claims','{"aal":"aal2"}',false)`);
     assert.equal((await db.query("select private.has_permission($1,'lead.create') as can",[o2])).rows[0].can,true);
     assert.equal((await db.query("select private.has_permission($1,'expense.approve') as can",[o2])).rows[0].can,false);
     await db.exec(`select set_config('request.jwt.claim.sub','${u1}',false)`);
@@ -202,5 +200,41 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     await db.exec(`reset role; set role anon;`);
     await assert.rejects(db.exec('select * from public.resources'), /permission denied/i);
     await assert.rejects(create('lead',leadKey,{...lead,contact_route:'+919000000000'}), {code:'42501'});
+
+    const adminSession = '92000000-0000-0000-0000-000000000001';
+    await db.exec(`reset role;
+      select private.provision_pilot_super_admin('${o1}','${u2}','Synthetic administrator','91000000-0000-0000-0000-000000000002');
+      insert into auth.sessions(id,user_id,aal) values ('${adminSession}','${u2}','aal1');
+      set role authenticated;
+      select set_config('request.jwt.claim.sub','${u2}',false);
+      select set_config('request.jwt.claims','{"aal":"aal1","session_id":"${adminSession}"}',false);`);
+    const fieldWrite = (kind, action, key, data) => db.query(
+      'select public.run_sales_field($1,$2,$3,$4,$5) as record', [o1,kind,action,key,data],
+    ).then(result => result.rows[0].record);
+    const product = { title: 'Synthetic model', details: { code: 'SYN-1', category: 'Testing' } };
+    const productKey = '94000000-0000-0000-0000-000000000001';
+    const savedProduct = await fieldWrite('product','create',productKey,product);
+    assert.deepEqual(await fieldWrite('product','create',productKey,product), savedProduct);
+    await assert.rejects(fieldWrite('product','create',productKey,{...product,title:'Different'}), {code:'22023'});
+    await assert.rejects(fieldWrite('product','create','94000000-0000-0000-0000-000000000002',product), {code:'23505'});
+    const updatedProduct = await fieldWrite('product','edit','94000000-0000-0000-0000-000000000003',
+      { ...product, title: 'Updated synthetic model', ...savedProduct });
+    assert.equal(updatedProduct.version,2);
+    await assert.rejects(fieldWrite('product','edit','94000000-0000-0000-0000-000000000004',
+      {...product,...savedProduct}), {code:'40001'});
+    const fetched = await db.query("select public.read_sales_field($1,'product') as data",[o1]);
+    assert.equal(fetched.rows[0].data.rows[0].title,'Updated synthetic model');
+    await assert.rejects(db.query("select public.read_sales_field($1,'product')",[o2]), {code:'42501'});
+    const attendance = {title:'Attendance', details:{exception:'Synthetic GPS exception'}};
+    const session = await fieldWrite('attendance_session','create','94000000-0000-0000-0000-000000000005',attendance);
+    await assert.rejects(fieldWrite('attendance_session','create','94000000-0000-0000-0000-000000000006',attendance), {code:'23505'});
+    await fieldWrite('attendance_session','complete','94000000-0000-0000-0000-000000000007',{...attendance,...session});
+    assert.equal((await db.query("select public.read_sales_field($1,'attendance_session') as data",[o1]))
+      .rows[0].data.rows[0].status,'Pending Review');
+    const readPolicy = organization => db.query('select public.read_operating_policy_settings($1) as settings', [organization]);
+    assert.equal((await readPolicy(o1)).rows[0].settings.expense, null, 'a live email/password session can read admin settings');
+    await assert.rejects(readPolicy(o2), {code:'42501'});
+    await db.exec(`reset role; update auth.sessions set not_after=now() - interval '1 day' where id='${adminSession}'; set role authenticated;`);
+    await assert.rejects(readPolicy(o1), {code:'42501'});
   } finally { await db.close(); }
 });
