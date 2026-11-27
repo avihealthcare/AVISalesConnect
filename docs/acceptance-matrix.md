@@ -75,3 +75,7 @@ Local browser acceptance covers email/password staff and administrator sign-in a
 ### Lead Management workflow extension
 
 The lead data tests now cover source and stage configuration, idempotent itemized capture, inquiry reference uniqueness, assignment and territory routing, notification ownership, atomic bulk changes, permission and tenant scope, first-response escalation, lost and reopened leads, matching, merge provenance, and authorized export. Browser tests exercise the lead dialog, linked customers, list, pipeline, product and activity details, and CSV intake. External provider ingestion and live private attachment scanning are still pending.
+
+### Customer and contact master extension
+
+Local checks cover customer IDs, normalized groups and locations, duplicate and Zoho-reference rejection, capacity and coordinate validation, version checks, departments, multi-organization contacts, hidden affiliations, and private visiting-card reservation. Browser acceptance covers creating branches, assigning a department, linking a contact to two organizations, verifying communication links, and creating a lead against the new customer master. Live Zoho synchronization and clean file release remain gated by their existing configuration.

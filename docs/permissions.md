@@ -56,3 +56,7 @@ The Super Administrator receives the pilot workspace permissions. The separate d
 ### Lead Management
 
 Intake staff retain own-record creation and write access through their existing lead grants. Team, territory and explicit share grants provide read access. Lead managers can assign and review duplicates across their organization. Reopening and detailed export use separate permissions. Super Administrators receive the workflow, export, and settings permissions. Lead notifications go to the affected memberships and the response queue only displays records the viewer can read. Private documents retain the existing independently scoped file permissions.
+
+### Customer and contact data
+
+Customer Master uses the same account IDs and account read scopes as lead intake. Super Administrators receive the separate customer-management permission for organization-wide updates and salesperson assignment. Contact reads require both contact permission and a visible linked customer. The directory shows only visible affiliations. Editing requires contact write access, the relevant owner or manager authority and access to the primary account. A user can edit the visible affiliations without removing links outside their account scope. Visiting cards use contact-scoped private file permissions and the existing scan-and-release workflow.

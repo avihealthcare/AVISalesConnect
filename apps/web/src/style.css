@@ -238,3 +238,13 @@ select,textarea{font:inherit;padding:.7rem;border:1px solid #78928e;border-radiu
   .lead-dialog { max-height: 90dvh; }
   .lead-form-grid,.lead-inline-form { grid-template-columns: minmax(0,1fr); }
 }
+
+.customer-filters { display: grid; grid-template-columns: minmax(200px,2fr) repeat(2,minmax(145px,1fr)); align-items: end; gap: .75rem; margin-bottom: 1rem; }
+.customer-filters label { display: grid; gap: .3rem; }
+.customer-links { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem .9rem; margin: .35rem 0; }
+.customer-links a { color: var(--action); }
+.lead-table-frame .customer-contact-table { min-width: 630px; }
+@media(max-width:1000px) {
+  .customer-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .customer-filters > label:first-child { grid-column: 1 / -1; }
+}

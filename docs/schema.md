@@ -133,3 +133,7 @@ Forward recovery preserves policy versions and audit. Publish a correcting versi
 ### Lead Management
 
 Extend the existing lead and resource records in place. Keep their identifiers and legacy lifecycle semantics for existing dashboards, lists, imports and opportunity conversion. Store append-only product revisions, immutable events, notification delivery state and organization-specific lead settings separately. Configure territory ownership with same-organization membership and territory foreign keys. Mutations use expected versions, audit events and operation receipts. Merge archives the duplicate and retains its identifier, intake, products, ownership/stage events and links. Opposing opportunity links require explicit resolution so the merge cannot double-count bookings or overwrite commercial records. Forward recovery uses an additive migration and the previous UI while keeping the original and new records.
+
+### Customer and contact master
+
+Extend account IDs in place with stable human-readable numbers and versioned master data. Groups normalize names within an organization and branches keep their own account IDs. Contacts retain their field-record IDs and primary account. Additional organization links carry the relevant department and same-organization foreign keys. Writes use expected versions, operation receipts and redacted audit events. Customer history reads apply independent visibility rules to each related module. Recovery uses a forward correction while the previous account and contact schemas remain readable.

@@ -146,3 +146,11 @@ The migration extends existing lead records and identifiers. The merge preserves
 Verified with `npm run check`, a clean disposable Supabase reset, the local database security advisor, real local Auth/API/Storage checks and Playwright. Browser acceptance covers itemized entry, moving directly to a demonstration stage, product and activity detail, desktop CSV intake, administrator configuration, loss/reopening and Excel download, alongside existing app checks. The user requested continuing work on this module and updating the existing pilot. Allocation and response escalation are delivered in-app. Automated inbound integrations and the live private scanner remain unconfigured.
 
 The append-only migration was applied to hosted Supabase and synchronized with migration version 20261126162719. The public deployment preserves the previous lead and account entry points.
+
+## 2026-11-27 — Hospital and Customer Master and Contact Management
+
+Added the customer directory, all twelve categories, versioned master fields, stable customer numbers, grouped branches, branch departments, and duplicate checks by normalized name/location and Zoho customer reference. Customer tabs show scope-filtered contacts, leads, installed equipment, visits, quotations, orders, demos, receipt references, private documents, and chronological activity. Contact Management retains existing contact IDs and adds the requested contact details, decision-making roles, individual department links to multiple organizations, and call, email and WhatsApp links. Indian mobile numbers entered without a country code use +91 in the WhatsApp link. Existing account links remain intact.
+
+Verified through the local unit/database suite, clean disposable migration replay, signed-in Auth/API/Storage checks and browser workflows. The tablet layout was corrected after a responsive test caught an overflowing filter row. Payments show linked receipt references already recorded in SalesConnect. Zoho live synchronization and the hosted attachment scanner remain unconfigured.
+
+The 30th hosted migration, 20261127092528, installs the customer and contact master. The final local run passed 13 unit/database tests, the signed-in Auth/API/Storage integration check and seven browser tests. Two duplicate invitation variants remained skipped by design.

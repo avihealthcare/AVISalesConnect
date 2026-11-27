@@ -314,6 +314,70 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     await assert.rejects(leadCommand('export',{query:{},format:'csv'}),{code:'42501'});
     await assert.rejects(leadCommand('activity',{id:routed.id,version:routed.version,kind:'Call',summary:'Read-only user'}),{code:'PT404'});
     await db.exec(`select set_config('request.jwt.claim.sub','${u2}',false);`);
+    const customerRead=(query={},id=null,org=o1)=>db.query(
+      'select public.read_customer_master($1,$2,$3) as result',[org,query,id]).then(result=>result.rows[0].result);
+    const customerWrite=(action,input,key=crypto.randomUUID())=>db.query(
+      'select public.command_customer_master($1,$2,$3,$4) as result',[o1,action,key,input]).then(result=>result.rows[0].result);
+    const westProfile={name:'Synthetic Medical Centre',group:'Synthetic Group',category:'Private Hospital',status:'Active',
+      address:'1 Synthetic Street',city:'Mumbai',nicu:'12',latitude:'19.075',longitude:'72.8777',zoho_id:'TEST-100',phone:'+91 22222 22222'};
+    const creationKey=crypto.randomUUID();
+    const west=await customerWrite('create',{fields:westProfile},creationKey);
+    assert.deepEqual(await customerWrite('create',{fields:westProfile},creationKey),west);
+    await assert.rejects(customerWrite('create',{fields:westProfile}),{code:'PT409'});
+    await assert.rejects(customerWrite('create',{fields:{...westProfile,name:'Synthetic Zoho duplicate'}}),{code:'23505'});
+    await assert.rejects(customerWrite('create',{fields:{...westProfile,longitude:'',name:'Synthetic invalid coordinates'}}),{code:'22023'});
+    const east=await customerWrite('create',{fields:{...westProfile,address:'2 Synthetic Street',group:'synthetic  group',zoho_id:'TEST-101'}});
+    const westDetails=await customerRead({},west.id);
+    assert.match(westDetails.number,/^CUST-\d+$/);
+    assert.equal(westDetails.details.nicu,'12');
+    assert.equal(westDetails.details.phone,'+912222222222');
+    assert.equal(westDetails.branches[0].id,east.id);
+    await assert.rejects(customerRead({},west.id,o2),{code:'42501'});
+    await customerWrite('department',{id:west.id,version:westDetails.version,fields:{name:'NICU'}});
+    await assert.rejects(customerWrite('edit',{id:west.id,version:westDetails.version,fields:westProfile}),{code:'PT409'});
+    const contactBody={fields:{name:'Synthetic Clinical Contact',account:west.id,designation:'Neonatologist',
+      phone:'+91 90000 00001',whatsapp:'+91 90000 00002',email:'clinic@example.invalid',decision_role:'Technical Evaluator'},
+      links:[{account:west.id,department:'nicu'},{account:east.id}]};
+    await assert.rejects(customerWrite('contact_create',{...contactBody,links:[{account:west.id,department:'missing'}]}),{code:'22023'});
+    const linked=await customerWrite('contact_create',contactBody);
+    assert.equal((await customerRead({},west.id)).contacts[0].id,linked.id);
+    assert.equal((await customerRead({},east.id)).contacts[0].id,linked.id);
+    const person=await customerRead({kind:'contacts'},linked.id);
+    assert.equal(person.accounts.length,2);
+    assert.equal(person.accounts.find(a=>a.primary).department,'NICU');
+    assert.equal(person.details.whatsapp,'+919000000002');
+    const picker=await customerRead({kind:'contact_choices',search:'mumbai'});
+    assert.ok(picker.some(account=>account.id===west.id&&account.departments.some(d=>d.key==='nicu')));
+    const masterOwner=(await customerRead({},west.id)).owner;
+    const scopedContactRole=crypto.randomUUID();
+    await db.exec(`reset role;
+      insert into public.roles(id,organization_id,code,name) values ('${scopedContactRole}','${o1}','customer_fixture','Synthetic account reader');
+      insert into public.role_permissions values ('${o1}','${scopedContactRole}','account.read'),('${o1}','${scopedContactRole}','contact.read');
+      insert into public.member_roles(organization_id,membership_id,role_id,effective_from)
+        values ('${o1}','${m3}','${scopedContactRole}',now());
+      insert into private.crm_record_shares(organization_id,resource_id,resource_type,owner_membership_id,recipient_membership_id,expires_at)
+        values ('${o1}','${east.id}','account','${masterOwner}','${m3}',now()+interval '1 day');
+      set role authenticated;
+      select set_config('request.jwt.claim.sub','${u3}',false);`);
+    const scopedContact=await customerRead({kind:'contacts'},linked.id);
+    assert.deepEqual(scopedContact.accounts.map(a=>a.id),[east.id]);
+    assert.equal(scopedContact.can_edit,false);
+    await assert.rejects(customerRead({},west.id),{code:'PT404'});
+    await db.exec(`select set_config('request.jwt.claim.sub','${u2}',false);`);
+    await customerWrite('contact_edit',{...contactBody,id:linked.id,version:person.version,links:[contactBody.links[0]]});
+    assert.equal((await customerRead({},east.id)).contacts.length,0);
+    const fileStage = () => db.query("select public.reserve_file_stage($1,$2,$3,'Synthetic card.pdf','business_document','application/pdf',100) as id",
+      [o1,linked.id,crypto.randomUUID()]);
+    await assert.rejects(fileStage(),{code:'42501'});
+    await db.exec(`reset role;
+      insert into public.role_permissions(organization_id,role_id,permission_code) select organization_id,id,'file.stage'
+       from public.roles where organization_id='${o1}' and code='super_admin';
+      set role authenticated;`);
+    assert.ok((await fileStage()).rows[0].id);
+    assert.equal((await db.query('select status from public.crm_record_files($1,$2,0)',[o1,linked.id])).rows[0].status,'Pending upload');
+    await db.exec(`select set_config('request.jwt.claim.sub','${u3}',false);`);
+    await assert.rejects(customerRead({},west.id),{code:'PT404'});
+    await db.exec(`select set_config('request.jwt.claim.sub','${u2}',false);`);
     const readPolicy = organization => db.query('select public.read_operating_policy_settings($1) as settings', [organization]);
     assert.equal((await readPolicy(o1)).rows[0].settings.expense, null, 'a live email/password session can read admin settings');
     await assert.rejects(readPolicy(o2), {code:'42501'});

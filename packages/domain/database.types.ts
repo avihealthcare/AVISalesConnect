@@ -22,6 +22,8 @@ export type Database = {
           name: string
           organization_id: string
           resource_type: string | null
+          display_number: number
+          master_version: number
         }
         Insert: {
           account_type: string
@@ -30,6 +32,8 @@ export type Database = {
           name: string
           organization_id: string
           resource_type?: never
+          display_number?: never
+          master_version?: number
         }
         Update: {
           account_type?: string
@@ -38,6 +42,8 @@ export type Database = {
           name?: string
           organization_id?: string
           resource_type?: never
+          display_number?: never
+          master_version?: number
         }
         Relationships: [
           {
@@ -578,6 +584,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      read_customer_master: {
+        Args: { p_org: string; p_query?: Json; p_id?: string };
+        Returns: Json;
+      };
+      command_customer_master: {
+        Args: { p_org: string; p_action: string; p_key: string; p_input: Json };
+        Returns: Json;
+      };
       read_lead_management: {
         Args: { p_org: string; p_query?: Json; p_id?: string };
         Returns: Json;

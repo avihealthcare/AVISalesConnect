@@ -25,10 +25,13 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
   }
 
   await open('Hospitals and Customers');
+  await page.getByRole('button',{name:'Add a customer',exact:true}).click();
   await page.getByLabel('Customer name', { exact: true }).fill('Synthetic Hospital');
+  await page.getByLabel('City',{exact:true}).fill('Mumbai');
   await page.getByRole('button', { name: 'Save customer' }).click();
-  await expect(page.getByText('Synthetic Hospital', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Synthetic Hospital',exact:true})).toBeVisible();
   if (checkFiles) {
+    await page.getByRole('button', { name: 'Documents', exact: true }).click();
     await page.getByRole('button', { name: 'Attachments', exact: true }).click();
     await page.getByLabel('Add attachment').setInputFiles({
       name: 'Synthetic.pdf',

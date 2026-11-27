@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
 import { StaffAdministration } from './StaffAdministration';
-import { RecordFiles } from './RecordFiles';
+import { CustomerWorkspace } from './CustomerWorkspace';
 import { PolicySettings } from './PolicySettings';
 import { LeadWorkspace } from './LeadWorkspace';
 import { Reports } from './Reports';
@@ -10,105 +10,17 @@ import { Tenders } from './Tenders';
 import { Expenses } from './Expenses';
 import { Dashboard } from './Dashboard';
 import { SalesField, type SalesFieldKind } from './SalesField';
-import { RecordSearch, containsTerm } from './RecordSearch';
+import { RecordSearch } from './RecordSearch';
 
 type Screen = 'home' | 'accounts' | 'leads' | 'opportunities' | 'administration' | 'settings' | 'distributors' | 'reports' | 'tenders' | 'expenses' | SalesFieldKind;
 type LeadView = 'all' | 'active' | 'overdue';
-type RecordOwner = { resources: { owner_membership_id: string | null } | null };
-type Account = { id: string; name: string; account_type: string } & RecordOwner;
 type OrganizationMembership = { id: string; organization_id: string; organizations: { name: string } | null };
-
-function Accounts({ db, organization, membership, distributors, initialName }: {
-  db: SupabaseClient<Database>; organization: string; membership?: string; distributors: boolean; initialName: string;
-}) {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [search, setSearch] = useState(initialName);
-  const [page, setPage] = useState(0);
-  const [more, setMore] = useState(false);
-  const [revision, refresh] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [grants,setGrants] = useState<string[]>([]);
-  const pending = useRef<{ key: string; body: string } | null>(null);
-
-  useEffect(() => {
-    let current = true;
-    void db.from('role_permissions').select('permission_code').eq('organization_id', organization)
-      .in('permission_code',['account.create','file.stage','file.download']).then(result => {
-        if (current) setGrants((result.data ?? []).map(row => row.permission_code));
-      });
-    return () => { current = false; };
-  },[db,organization]);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);setLoadError(false);
-    let query = db.from('accounts').select('id,name,account_type,resources(owner_membership_id)').eq('organization_id',organization);
-    if (distributors) query = query.eq('account_type','Distributor');
-    if (search) query = query.ilike('name',containsTerm(search));
-    void query.order('name').order('id').range(page*25,page*25+25).then(result => {
-      if (!active) return;
-      setAccounts((result.data ?? []).slice(0,25));setMore((result.data?.length ?? 0)>25);
-      setLoadError(Boolean(result.error));setLoading(false);
-    });
-    return () => { active=false; };
-  },[db,organization,distributors,search,page,revision]);
-
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    const form=event.currentTarget, values=new FormData(form);
-    const input={name:String(values.get('name') ?? '').trim(),account_type:distributors?'Distributor':String(values.get('account_type') ?? '')};
-    const body=JSON.stringify(input);
-    if (pending.current?.body!==body) pending.current={body,key:crypto.randomUUID()};
-    setBusy(true);setError('');setSaved(false);
-    try {
-      const result=await db.rpc('create_intake_record',{p_org:organization,p_key:pending.current.key,p_kind:'account',p_input:input});
-      if (result.error) {
-        setError(result.error.code==='42501'?'You do not have permission to create this customer.':
-          ['23502','23514','22023'].includes(result.error.code)?'Review the name and customer type.':'Unable to confirm the save. Retry with the same entries.');
-        return;
-      }
-      pending.current=null;form.reset();setSaved(true);setPage(0);refresh(value=>value+1);
-    } catch {setError('Unable to confirm the save. Retry with the same entries.');}
-    finally {setBusy(false);}
-  }
-
-  return <div className="workspace-grid">
-    {grants.includes('account.create') && <section className="panel">
-      <h2>{distributors?'Add a distributor':'Add a customer'}</h2>
-      <form onSubmit={create}>
-        <label>Customer name<input name="name" required maxLength={200} /></label>
-        {!distributors && <label>Customer type<select name="account_type">
-          {['Hospital','Institution','Distributor','Other'].map(type=><option key={type}>{type}</option>)}
-        </select></label>}
-        <button disabled={busy}>{busy?'Saving…':distributors?'Save distributor':'Save customer'}</button>
-      </form>
-      {saved && <p role="status">Record saved.</p>}
-      {error && <p role="alert" className="error">{error}</p>}
-    </section>}
-    <section className="panel">
-      <h2>{distributors?'Distributors':'Customers'}</h2>
-      <label>Search by name<input value={search} maxLength={140} onChange={event=>{setSearch(event.target.value);setPage(0);}} /></label>
-      {loading ? <p role="status">Loading records…</p> : loadError ? <p role="alert">Unable to load records. <button className="link" onClick={()=>refresh(value=>value+1)}>Retry</button></p>
-        : accounts.length ? <ul className="records">{accounts.map(account=><li key={account.id}><strong>{account.name}</strong><p>{account.account_type}</p>
-          {membership && account.resources?.owner_membership_id===membership && (grants.includes('file.stage')||grants.includes('file.download')) &&
-            <RecordFiles db={db} organization={organization} record={account.id} canUpload={grants.includes('file.stage')} />}
-        </li>)}</ul> : <p>{distributors?'No distributors are visible.':'No customers are visible.'}</p>}
-      {!loading && !loadError && (page>0||more) && <div><button className="secondary" disabled={!page} onClick={()=>setPage(value=>value-1)}>Previous</button>
-        <button className="secondary" disabled={!more} onClick={()=>setPage(value=>value+1)}>Next</button></div>}
-    </section>
-  </div>;
-}
 
 const navigation: { id: Screen; label: string; permission?: string; salesField?: boolean }[] = [
   { id: 'home', label: 'Dashboard' }, { id: 'leads', label: 'Leads', permission: 'lead.read' },
   { id: 'accounts', label: 'Hospitals and Customers', permission: 'account.read' },
   { id: 'site', label: 'Customer Sites', permission: 'site.read', salesField: true },
-  { id: 'contact', label: 'Contacts', permission: 'contact.read', salesField: true },
+  { id: 'contact', label: 'Contacts', permission: 'contact.read' },
   { id: 'opportunities', label: 'Opportunities', permission: 'opportunity.read' },
   { id: 'attendance_session', label: 'Attendance', permission: 'attendance_session.read', salesField: true },
   { id: 'visit', label: 'Field Visits', permission: 'visit.read', salesField: true },
@@ -225,10 +137,9 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
         {screen === 'opportunities' && <><h1>{title}</h1><OpportunityList key={organization} db={db} organization={organization} /></>}
         {screen === 'leads' && permissions?.has('lead.read') && <LeadWorkspace
           key={organization+initialName+initialView} db={db} organization={organization} initialName={initialName} initialView={initialView} />}
-        {(screen === 'accounts' || screen === 'distributors') && <>
-          <h1>{title}</h1><Accounts key={organization+screen+initialName} db={db} organization={organization}
-            membership={current?.id} distributors={screen==='distributors'} initialName={initialName} />
-        </>}
+        {(screen === 'accounts' || screen === 'distributors' || screen === 'contact') && <CustomerWorkspace
+          key={organization+screen+initialName} db={db} organization={organization}
+          initialName={initialName} mode={screen==='contact'?'contacts':screen} openLead={reference=>go('leads',reference)}/>}
         </>}
       </main>
     </div>

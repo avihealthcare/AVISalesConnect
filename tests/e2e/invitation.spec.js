@@ -45,6 +45,44 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await expect(page.getByLabel(/Rate per kilometre/)).toHaveValue('12.50');
 
   const navigation = page.getByRole('navigation', { name: 'SalesConnect' });
+  await navigation.getByRole('button',{name:'Hospitals and Customers',exact:true}).click();
+  async function addBranch(name,address) {
+    await page.getByRole('button',{name:'Add a customer',exact:true}).click();
+    const editor=page.getByRole('dialog',{name:'Add Customer'});
+    await editor.getByLabel('Customer name').fill(name);
+    await editor.getByLabel('Hospital group or chain').fill('Synthetic network');
+    await editor.getByLabel('Complete address').fill(address);
+    await editor.getByLabel('Customer category').selectOption('Neonatal Centre');
+    await editor.getByLabel('NICU bed capacity').fill('15');
+    await editor.getByRole('button',{name:'Save customer',exact:true}).click();
+    await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
+  }
+  await addBranch('Synthetic West Branch','1 Synthetic West Street');
+  await page.getByRole('button',{name:/Back to hospitals/}).click();
+  await addBranch('Synthetic East Branch','2 Synthetic East Street');
+  await expect(page.getByRole('heading',{name:'Other branches in this group',exact:true})).toBeVisible();
+  await page.getByLabel('Department name').fill('NICU');
+  await page.getByRole('button',{name:'Add Department',exact:true}).click();
+  await expect(page.getByRole('listitem').getByText('NICU',{exact:true})).toBeVisible();
+  await page.getByRole('navigation',{name:'Customer details',exact:true}).getByRole('button',{name:'Contacts',exact:true}).click();
+  await page.getByRole('button',{name:'Add Contact',exact:true}).click();
+  const contactEditor=page.getByRole('dialog',{name:'Add Contact'});
+  await contactEditor.getByLabel('Full name').fill('Synthetic Clinician');
+  await contactEditor.getByLabel('Designation').fill('Neonatologist');
+  await contactEditor.getByLabel('Mobile number').fill('+919000000001');
+  await contactEditor.getByLabel('WhatsApp number').fill('+919000000002');
+  await contactEditor.getByLabel('Email address').fill('clinician@example.invalid');
+  await contactEditor.getByRole('group',{name:'Primary organisation',exact:true}).getByLabel('Department').selectOption('nicu');
+  await contactEditor.getByRole('button',{name:'Add Organisation',exact:true}).click();
+  await contactEditor.getByRole('group',{name:'Additional organisation 1',exact:true})
+    .getByLabel('Hospital or organisation').selectOption({label:'Synthetic West Branch'});
+  await contactEditor.getByRole('button',{name:'Save Contact',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Synthetic Clinician',exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Call',exact:true})).toHaveAttribute('href','tel:+919000000001');
+  await expect(page.getByRole('link',{name:'Email',exact:true})).toHaveAttribute('href','mailto:clinician@example.invalid');
+  await expect(page.getByRole('link',{name:'WhatsApp',exact:true})).toHaveAttribute('href','https://wa.me/919000000002');
+  await expect(page.getByRole('button',{name:'Synthetic West Branch',exact:true})).toBeVisible();
+
   await navigation.getByRole('button',{name:'Leads',exact:true}).click();
   await page.getByRole('button',{name:'Lead Settings',exact:true}).click();
   await page.getByLabel('Display name').fill('Synthetic campaign');
