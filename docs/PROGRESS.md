@@ -176,3 +176,9 @@ M2 pilot increment. Modernized the Hospitals and Customers and Contacts director
 `npm run check` passed 15 unit/database tests and the production build. The disposable stack reset, database security advisor and `npm run test:local-auth` passed. `npm run test:e2e` passed 10 tests with 2 desktop-only invitation scenarios skipped on tablet/phone as configured. Scanning tests use a synthetic successful OCR response, the real local Edge upload and Storage, and the real missing-key fallback. Physical cameras and the live OpenAI provider were not exercised.
 
 Hosted Supabase applied `20261127164949_visiting_card_lead_intake` and deployed `scan-visiting-card` with JWT verification. Activation still depends on the AVI OpenAI Edge secret. Original-card release still depends on an approved file-scanning integration. Validate automatic extraction with a synthetic visiting card when the OpenAI credential is provisioned.
+
+## 2026-11-27 — On-device visiting-card OCR
+
+M2 pilot follow-up. Replaced hosted extraction with Tesseract.js and pinned English OCR assets served from the app. Front and back are read in one browser worker, and recognized fields enter the existing review and duplicate-link workflow. The private Edge function accepts original images only when saving. No database migration or OCR credential is needed.
+
+`npm run check` passed 15 unit and database tests and the build. The disposable Auth/API/Storage integration passed. Real two-sided OCR, no external OCR request, duplicate linkage, batch save and blank-card fallback passed in desktop, tablet and phone Chrome layouts in both the development and pilot-policy production builds. The separate desktop Kanban synthetic drag check failed under the production preview and reproduced at the previous release commit. Original downloads still require the approved file-release integration. The on-device model is English.

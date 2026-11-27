@@ -309,7 +309,7 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
             }}>Manual Entry</button>
             <button className="secondary" type="button" onClick={()=>{
               if(createMenu.current)createMenu.current.open=false;setDialog('scan');setError('');
-            }}><strong>Scan Visiting Card</strong><small>Auto-fill hospital, doctor &amp; contact details via AI</small></button>
+            }}><strong>Scan Visiting Card</strong><small>Auto-fill contact details on this device</small></button>
           </div>
         </details>}
       </div></div>}

@@ -18,14 +18,14 @@ export type CardUpload = { upload_key: string; front: string; back?: string };
 export const cardFileLimit = 10 * 1024 * 1024;
 export const cardAccept = 'image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif';
 
-export async function sendCardImages<T>(db: SupabaseClient<Database>, organization: string, action: 'extract' | 'upload',
-  front: Blob, back?: Blob): Promise<T> {
+export async function uploadCardImages(db: SupabaseClient<Database>, organization: string,
+  front: Blob, back?: Blob): Promise<CardUpload> {
   const data = new FormData();
   data.append('front', front, 'front-card');
   if (back) data.append('back', back, 'back-card');
-  const result = await db.functions.invoke<T>('scan-visiting-card', {
+  const result = await db.functions.invoke<CardUpload>('scan-visiting-card', {
     body: data,
-    headers: { 'x-avi-organization': organization, 'x-avi-card-action': action },
+    headers: { 'x-avi-organization': organization, 'x-avi-card-action': 'upload' },
   });
   if (result.error || !result.data) {
     const response = result.error?.context;

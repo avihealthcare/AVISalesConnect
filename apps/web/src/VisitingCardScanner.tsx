@@ -4,7 +4,7 @@ import type { Database, Json } from '../../../packages/domain/database.types';
 import { AviIcon } from './AviIcon';
 import { LeadDialog, LeadForm } from './LeadEditor';
 import { commandError, type Workspace } from './leadModel';
-import { cardAccept, cardFileLimit, sendCardImages, type CardFields, type CardMatches, type CardUpload, type MatchInputs } from './visitingCardModel';
+import { cardAccept, cardFileLimit, uploadCardImages, type CardFields, type CardMatches, type CardUpload, type MatchInputs } from './visitingCardModel';
 
 type Side = 'front' | 'back';
 type Crop = Record<'left' | 'top' | 'right' | 'bottom', number>;
@@ -163,6 +163,7 @@ export function VisitingCardScanner({ db, organization, workspace, close, saved 
   const [camera,setCamera] = useState<Side>();
   const [working,setWorking] = useState<'decode'|'extract'|'save'>();
   const [error,setError] = useState('');
+  const [ocrProgress,setOcrProgress] = useState('Preparing on-device text recognition…');
   const [notice,setNotice] = useState('');
   const [fields,setFields] = useState<CardFields>();
   const [inputs,setInputs] = useState<MatchInputs>(emptyMatch);
@@ -222,12 +223,21 @@ export function VisitingCardScanner({ db, organization, workspace, close, saved 
   async function extract() {
     if(active.current||!images.front)return;
     active.current=true;setWorking('extract');setError('');setNotice('');
+    setOcrProgress('Preparing on-device text recognition…');
     try {
       const front=await preparedImage(images.front);
       const back=addBack&&images.back ? await preparedImage(images.back) : undefined;
-      const result=await sendCardImages<{fields:CardFields}>(db,organization,'extract',front,back);
-      startReview(result.fields);
-    } catch (failure) {setError(failure instanceof Error?failure.message:'This card could not be read. Enter the details manually.');}
+      const { extractCardFields } = await import('./cardOCR');
+      const result=await extractCardFields(back?[front,back]:[front],(side,total)=>
+        setOcrProgress(`Reading ${side===1?'front':'back'} side (${side} of ${total})…`));
+      if (!Object.keys(result).length) {
+        setError('No readable card details found. Try a clearer photo or enter the details manually.');
+        return;
+      }
+      startReview(result);
+    } catch {
+      setError('Text recognition could not finish. Retry with a clearer photo or enter the details manually.');
+    }
     finally {active.current=false;setWorking(undefined);}
   }
 
@@ -235,7 +245,7 @@ export function VisitingCardScanner({ db, organization, workspace, close, saved 
     if(active.current||!images.front||!input||typeof input!=='object'||Array.isArray(input))return;
     active.current=true;setWorking('save');setError('');
     try {
-      upload.current ??= await sendCardImages<CardUpload>(db,organization,'upload',images.front.file,addBack?images.back?.file:undefined);
+      upload.current ??= await uploadCardImages(db,organization,images.front.file,addBack?images.back?.file:undefined);
       const {open_documents,...lead}=input;
       const body={...lead,...upload.current};
       const request=JSON.stringify(body);
@@ -261,7 +271,7 @@ export function VisitingCardScanner({ db, organization, workspace, close, saved 
 
   return <LeadDialog title="Scan Visiting Card" className={`avi-card-dialog ${review?'avi-card-review':''}`} onClose={requestClose}>
     <div className="avi-card-steps"><h3 ref={step} tabIndex={-1}>{review?'2. Verify details':'1. Capture or upload'}</h3>
-      <span className="muted">{review?'Review the card before creating a lead.':'Auto-fill hospital, doctor & contact details via AI'}</span>
+      <span className="muted">{review?'Review the card before creating a lead.':'Auto-fill contact details with on-device text recognition'}</span>
     </div>
     {notice&&<p className="avi-card-notice" role="status">{notice}</p>}
     {!review ? <div className="avi-card-capture">
@@ -270,9 +280,9 @@ export function VisitingCardScanner({ db, organization, workspace, close, saved 
       <label className="lead-check"><input type="checkbox" checked={addBack} disabled={!!working||!!camera}
         onChange={event=>{setAddBack(event.target.checked);upload.current=undefined;}}/> Add Back Side</label>
       {working==='decode'&&<p role="status" className="muted">Preparing image…</p>}
-      {working==='extract'&&<p className="avi-sr-only" role="status">Extracting contact and hospital details</p>}
+      {working==='extract'&&<p className="muted" role="status">{ocrProgress}</p>}
       {error&&<p className="error" role="alert">{error}</p>}
-      <p className="muted">Extract Details sends an image to the AI service. Saving keeps the original card with the lead.</p>
+      <p className="muted">Text recognition runs on this device. The original images are uploaded privately when you save.</p>
       <div className="lead-form-actions">
         <button type="button" className="secondary" disabled={!!working||!!camera||!images.front} onClick={()=>startReview({})}>Enter Details Manually</button>
         <button type="button" disabled={!!working||!!camera||!images.front} onClick={()=>void extract()}>
