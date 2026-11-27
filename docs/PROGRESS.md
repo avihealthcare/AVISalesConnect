@@ -154,3 +154,9 @@ Added the customer directory, all twelve categories, versioned master fields, st
 Verified through the local unit/database suite, clean disposable migration replay, signed-in Auth/API/Storage checks and browser workflows. The tablet layout was corrected after a responsive test caught an overflowing filter row. Payments show linked receipt references already recorded in SalesConnect. Zoho live synchronization and the hosted attachment scanner remain unconfigured.
 
 The 30th hosted migration, 20261127092528, installs the customer and contact master. The final local run passed 13 unit/database tests, the signed-in Auth/API/Storage integration check and seven browser tests. Two duplicate invitation variants remained skipped by design.
+
+## 2026-11-27 — Lead workspace redesign
+
+The Leads workspace now uses an AVI-branded layout informed by Salesforce's lead list, record, and pipeline workflows. Added a view selector, browser-local saved and pinned views, a split-view queue, a filter panel, row quick actions and stage moves from Kanban. Lead records show the current sales stage, contact actions, the next action and follow-up, activity logging, related records and a conversion confirmation. Conversion still uses the linked customer and the existing permission-checked opportunity command. Configuration and CRM data keep their existing database schema and permissions.
+
+Verified using the production build, unit/database checks, local browser workflows and visual previews at desktop and phone sizes. Browser checks cover filtered split view, pinned preferences after reload, follow-up scheduling, Kanban stage changes and creating an opportunity from a qualified lead.

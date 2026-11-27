@@ -63,7 +63,7 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
     let current = true;
     void Promise.all([
       db.from('role_permissions').select('permission_code').eq('organization_id', organization)
-        .in('permission_code', [...navigationPermissions, 'lead.create']),
+        .in('permission_code', [...navigationPermissions, 'lead.create', 'lead.contact', 'lead.convert']),
       db.from('roles').select('id').eq('organization_id', organization).eq('code', 'super_admin').limit(1),
     ]).then(([grants, role]) => {
       if (current) setAccess({ organization, permissions: new Set((grants.data ?? []).map(row => row.permission_code)),
@@ -135,8 +135,8 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
         {selected?.salesField && selected.permission && permissions?.has(selected.permission)
           && <SalesField key={organization + screen} db={db} organization={organization} kind={screen as SalesFieldKind} />}
         {screen === 'opportunities' && <><h1>{title}</h1><OpportunityList key={organization} db={db} organization={organization} /></>}
-        {screen === 'leads' && permissions?.has('lead.read') && <LeadWorkspace
-          key={organization+initialName+initialView} db={db} organization={organization} initialName={initialName} initialView={initialView} />}
+        {screen === 'leads' && current && permissions?.has('lead.read') && <LeadWorkspace
+          key={organization+initialName+initialView} db={db} organization={organization} membership={current.id} canEditOwn={permissions.has('lead.contact')} canConvertOwn={permissions.has('lead.convert')} initialName={initialName} initialView={initialView} />}
         {(screen === 'accounts' || screen === 'distributors' || screen === 'contact') && <CustomerWorkspace
           key={organization+screen+initialName} db={db} organization={organization}
           initialName={initialName} mode={screen==='contact'?'contacts':screen} openLead={reference=>go('leads',reference)}/>}

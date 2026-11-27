@@ -61,6 +61,7 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
   if (info.project.name === 'desktop') {
     await editor.getByLabel('Current sales stage').selectOption('demo_requested');
     await editor.getByLabel('Next action').fill('Confirm the demonstration date');
+    await editor.getByLabel('Product specifications or requirements').fill('Synthetic equipment requirement');
     for (const [model,quantity,price] of [['Synthetic warmer','2','2000.50'],['Synthetic monitor','3','500.00']]) {
       await editor.getByRole('button',{name:'Add product',exact:true}).click();
       const product=editor.getByRole('group',{name:model.includes('warmer')?'Product 1':'Product 2'});
@@ -98,6 +99,55 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
     await page.getByRole('button', { name: 'Import 1 valid row' }).click();
     await expect(page.getByText('1 CSV row saved or matched to your earlier import.')).toBeVisible();
     await expect(page.getByText('Two, quoted items')).toBeVisible();
+    await page.getByRole('button',{name:'Filters',exact:true}).click();
+    await page.getByRole('combobox',{name:'Source',exact:true}).selectOption('indiamart');
+    await expect(page.getByText('Two, quoted items')).toHaveCount(0);
+    await page.getByRole('button',{name:'Split View',exact:true}).click();
+    const queue=page.getByRole('navigation',{name:'Leads in this view',exact:true});
+    await queue.getByRole('button',{name:/Synthetic Inquiry/}).click();
+    await expect(page.getByRole('heading',{name:'Synthetic Inquiry',exact:true})).toBeVisible();
+    await expect(queue.getByRole('button',{name:/Synthetic Inquiry/})).toHaveAttribute('aria-current','page');
+    await expect(page.locator('.avi-lead-path [aria-current=step]')).toHaveText('Demonstration Requested');
+
+    await page.getByRole('button',{name:'Schedule Follow-up',exact:true}).click();
+    const schedule=page.getByRole('dialog',{name:'Schedule Follow-up',exact:true});
+    await schedule.getByLabel('Next action',{exact:true}).fill('Confirm synthetic follow-up');
+    await schedule.getByLabel('Next follow-up date').fill('2036-12-01T12:00');
+    await schedule.getByRole('button',{name:'Save Follow-up',exact:true}).click();
+    await expect(schedule).toHaveCount(0);
+    await expect(page.locator('.avi-lead-work')).toContainText('Confirm synthetic follow-up');
+    await page.getByRole('button',{name:/Back to leads/}).click();
+    await page.getByRole('button',{name:'Save View',exact:true}).click();
+    const saved=page.getByRole('dialog',{name:'Save Lead View',exact:true});
+    await saved.getByLabel('View name').fill('IndiaMART split queue');
+    await saved.getByRole('button',{name:'Save View',exact:true}).click();
+    await page.getByRole('button',{name:'Pin as Default',exact:true}).click();
+    await page.reload();
+    await open('Leads');
+    await expect(page.getByRole('combobox',{name:'Lead view',exact:true}).locator('option:checked')).toHaveText('IndiaMART split queue');
+    await expect(page.getByRole('button',{name:'Split View',exact:true})).toHaveAttribute('aria-pressed','true');
+    await page.getByRole('button',{name:'Unpin Default',exact:true}).click();
+    await page.getByRole('button',{name:'Remove Saved View',exact:true}).click();
+
+    await page.getByRole('button',{name:'Kanban Pipeline',exact:true}).click();
+    const card=page.getByRole('region',{name:'Demonstration Requested',exact:true}).locator('[draggable=true]');
+    const target=page.getByRole('region',{name:'Qualified',exact:true});
+    const transfer=await page.evaluateHandle(()=>new DataTransfer());
+    await card.dispatchEvent('dragstart',{dataTransfer:transfer});
+    await target.dispatchEvent('dragover',{dataTransfer:transfer});
+    await expect(target).toHaveAttribute('data-drop-target','true');
+    await target.dispatchEvent('drop',{dataTransfer:transfer});
+    const dragConfirm=page.getByRole('dialog',{name:'Change Sales Stage',exact:true});
+    await expect(dragConfirm.getByRole('combobox',{name:'Move to stage'})).toHaveValue('qualified');
+    await dragConfirm.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.getByRole('button',{name:'Move Synthetic Inquiry to another stage',exact:true}).click();
+    const move=page.getByRole('dialog',{name:'Change Sales Stage',exact:true});
+    await move.getByLabel('Move to stage').selectOption('qualified');
+    await move.getByRole('button',{name:'Update Stage',exact:true}).click();
+    await page.getByRole('region',{name:'Qualified',exact:true}).getByText('Synthetic Inquiry',{exact:true}).click();
+    await page.getByRole('button',{name:'Convert Lead',exact:true}).click();
+    await page.getByRole('dialog',{name:'Convert Lead',exact:true}).getByRole('button',{name:'Create Opportunity',exact:true}).click();
+    await expect(page.getByText('Opportunity created.',{exact:true})).toBeVisible();
     await open('Reports');
     await expect(page.getByRole('row', { name: 'CSV import 1' })).toBeVisible();
   }

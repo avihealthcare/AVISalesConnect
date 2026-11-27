@@ -1,11 +1,12 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
+import { telephone, waLink } from './customerModel';
 import { RecordFiles } from './RecordFiles';
 import { LeadDialog } from './LeadEditor';
-import { activityTypes, dateTime, label, money, options, readFields, readTime, type LeadDetail, type LeadEvent, type Product, type Workspace } from './leadModel';
+import { activityTypes, commandError, dateTime, inputTime, label, money, options, readFields, readTime, type LeadDetail, type LeadEvent, type Product, type Workspace } from './leadModel';
 
-const tabs = ['Overview','Products and Requirements','Contacts','Activity Timeline','Follow-ups','Field Visits','Quotations','Demonstrations','Orders','Documents','Status History'];
+const tabs = ['Overview','Products and Requirements','Contacts','Activity Timeline','Related','Follow-ups','Field Visits','Quotations','Demonstrations','Orders','Documents','Status History'];
 const relatedTypes: Record<string,string> = {'Follow-ups':'task','Field Visits':'visit','Quotations':'quotation','Demonstrations':'demo','Orders':'financial_reference'};
 const recordLabels: Record<string,string> = { task:'Follow-up',visit:'Visit',quotation:'Quotation',demo:'Demonstration',financial_reference:'Order' };
 const relatedEvents: Record<string,string[]> = {'Follow-ups':['Follow-up','Follow-up scheduled'],'Field Visits':['Visit'],'Quotations':['Quotation'],
@@ -37,14 +38,14 @@ function Timeline({ events, workspace }: { events: LeadEvent[]; workspace: Works
   })}</ul> : <p className="muted">No activity recorded.</p>;
 }
 
-export function StageChange({ workspace, lead, onClose, save, busy, error }: {
-  workspace: Workspace; lead: LeadDetail; onClose: () => void; save: (action: string, input: Json) => Promise<void>; busy: boolean; error: string;
+export function StageChange({ workspace, lead, initialStage, onClose, save, busy, error }: {
+  workspace: Workspace; lead: LeadDetail; initialStage?:string; onClose: () => void; save: (action: string, input: Json) => Promise<void>; busy: boolean; error: string;
 }) {
   const behavior = workspace.catalog.find(item => item.kind === 'stage' && item.code === lead.data.sales_stage)?.behavior;
   const reopen = ['won','lost','closed'].includes(behavior ?? '');
   const available = options(workspace,'stage').filter(item => item.code !== lead.data.sales_stage &&
     (!reopen || !['won','lost','closed'].includes(item.behavior ?? '')));
-  const [stage, setStage] = useState('');
+  const [stage, setStage] = useState(available.some(item=>item.code===initialStage)?initialStage??'':'');
   const lost = available.find(item => item.code === stage)?.behavior === 'lost';
   const closed = available.find(item => item.code === stage)?.behavior === 'closed';
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -71,9 +72,27 @@ export function StageChange({ workspace, lead, onClose, save, busy, error }: {
   </LeadDialog>;
 }
 
-export function LeadDetailView({ db, organization, lead, workspace, tab, setTab, back, edit, changeStage, mutate, busy, error }: {
+function SalesPath({ workspace, stage, select }: {
+  workspace:Workspace;stage:string;select?: (code:string)=>void;
+}) {
+  const track=useRef<HTMLOListElement>(null);
+  const current=useRef<HTMLLIElement>(null);
+  useEffect(()=>{
+    const row=track.current, active=current.current;
+    if(row&&active) row.scrollLeft=active.offsetLeft-row.offsetLeft-(row.clientWidth-active.clientWidth)/2;
+  },[stage]);
+  return <section className="avi-lead-path" aria-labelledby="avi-stage-label">
+    <div><h2 id="avi-stage-label">Sales path</h2><span className="muted">Current stage · {label(workspace,'stage',stage)}</span></div>
+    <ol ref={track}>{options(workspace,'stage',stage).map(item=><li key={item.code} ref={item.code===stage?current:undefined}>
+      {select&&item.active&&item.code!==stage?<button type="button" className="secondary" onClick={()=>select(item.code)}>{item.label}</button>
+        : <span aria-current={item.code===stage?'step':undefined}>{item.label}</span>}
+    </li>)}</ol>
+  </section>;
+}
+
+export function LeadDetailView({ db, organization, lead, workspace, tab, setTab, back, edit, changeStage, mutate, busy, error, startCall, canConvert }: {
   db: SupabaseClient<Database>; organization: string; lead: LeadDetail; workspace: Workspace; tab: string; setTab: (tab: string) => void;
-  back: () => void; edit: () => void; changeStage: () => void; mutate: (action: string,input: Json) => Promise<boolean>; busy: boolean; error: string;
+  back: () => void; edit: () => void; changeStage: (code?:string) => void; mutate: (action: string,input: Json) => Promise<boolean>; busy: boolean; error: string; startCall:boolean; canConvert:boolean;
 }) {
   const {data} = lead;
   const stage = workspace.catalog.find(item => item.kind === 'stage' && item.code === data.sales_stage);
@@ -82,7 +101,22 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
     kind:recordLabels[record.kind],occurred_at:record.created_at,actor:null,
     details:{summary:record.title,notes:[record.status,record.reference].filter(Boolean).join(' · ')},
   }))].sort((first,second)=>Date.parse(second.occurred_at)-Date.parse(first.occurred_at));
-  const [logging, setLogging] = useState(false);
+  const [logging, setLogging] = useState(startCall);
+  const [activityPreset,setActivityPreset]=useState(startCall?'Call':'');
+  const [nextAction,setNextAction]=useState(false);
+  const [confirmConvert,setConfirmConvert]=useState(false);
+  const convertKey=useRef<{version:number;key:string} | null>(null);
+  const phone=telephone(data.mobile??data.contact_route);
+  const email=data.email??(data.contact_route?.includes('@')?data.contact_route:undefined);
+  const whatsapp=waLink(data.mobile??data.contact_route);
+  const qualified=canConvert&&data.lifecycle==='Qualified'&&Boolean(data.account_id)&&!isClosed;
+  const relatedCards=[
+    ['Products and Requirements',lead.products.length,'Product lines'],['Contacts',data.contact_person||data.mobile||data.email?1:0,'Primary contact'],
+    ...Object.entries(relatedTypes).map(([name,kind])=>[name,lead.related.filter(item=>item.kind===kind).length,'Linked records']),
+    ['Documents',null,'Private files'],['Status History',null,'Stage and assignment history'],
+  ] as const;
+  const schedule=lead.can_edit&&!isClosed&&Boolean(stage?.active);
+  function beginActivity(kind:string) {setActivityPreset(kind);setLogging(true);setTab('Activity Timeline');}
   const [merge, setMerge] = useState<string>();
   const [convertNotice, setConvertNotice] = useState('');
   const [converting, setConverting] = useState(false);
@@ -93,11 +127,18 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
       .then(success => { if (success) setLogging(false); });
   }
   async function convert() {
-    setConverting(true);
-    const {error} = await db.rpc('progress_lead',{p_org:organization,p_id:data.id,p_key:crypto.randomUUID(),p_version:data.row_version,p_action:'convert',p_input:{}});
-    setConverting(false);
-    setConvertNotice(error ? 'Could not create the opportunity. Check that you own the linked customer and refresh the lead.' : 'Opportunity created.');
-    if (!error) await mutate('refresh',{});
+    if(converting||!qualified) return;
+    setConverting(true);setConvertNotice('');
+    if(convertKey.current?.version!==data.row_version) convertKey.current={version:data.row_version,key:crypto.randomUUID()};
+    try {
+      const {error}=await db.rpc('progress_lead',{p_org:organization,p_id:data.id,p_key:convertKey.current.key,
+        p_version:data.row_version,p_action:'convert',p_input:{}});
+      if(error) {setConvertNotice(commandError(error));return;}
+      convertKey.current=null;
+      setConfirmConvert(false);setConvertNotice('Opportunity created.');
+      await mutate('refresh',{});
+    } catch { setConvertNotice('The conversion could not be confirmed. Retry to check the result.'); }
+    finally {setConverting(false);}
   }
   return <>
     <button className="link lead-back" type="button" onClick={back}>← Back to leads</button>
@@ -107,10 +148,27 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
         <div className="lead-tags"><span className="lead-badge" data-tone={stage?.behavior}>{stage?.label ?? data.sales_stage}</span>
           <span className="lead-badge" data-tone={data.priority.toLowerCase()}>{data.priority}</span>
           <span>{lead.owner_name ?? 'Unassigned'}</span><strong>{money(data.expected_value)}</strong></div>
+        <div className="avi-lead-contact">
+          {phone&&<a href={`tel:${phone}`}>Call</a>}
+          {email&&<a href={`mailto:${encodeURIComponent(email).replace('%40','@')}`}>Email</a>}
+          {whatsapp&&<a href={whatsapp} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
+        </div>
       </div><div className="lead-actions">
         {lead.can_edit && <button className="secondary" type="button" onClick={edit}>Edit Lead</button>}
-        {lead.can_edit && (!isClosed || lead.can_reopen) && <button type="button" onClick={changeStage}>{isClosed ? 'Reopen Lead' : 'Change Stage'}</button>}
+        {lead.can_edit && (!isClosed || lead.can_reopen) && <button type="button" onClick={()=>changeStage()}>{isClosed ? 'Reopen Lead' : 'Change Stage'}</button>}
+        {qualified&&<button className="secondary" type="button" onClick={()=>{setConvertNotice('');setConfirmConvert(true);}}>Convert Lead</button>}
       </div></div>
+      {convertNotice&&!confirmConvert&&<p role="status">{convertNotice}</p>}
+      <SalesPath workspace={workspace} stage={data.sales_stage} select={lead.can_edit&&!isClosed?changeStage:undefined} />
+      <div className="avi-lead-work">
+        <div><span>Next action</span><strong>{data.next_action??'No follow-up planned'}</strong>
+          {data.next_action_due_at&&<small>{dateTime(data.next_action_due_at)}</small>}</div>
+        <div className="lead-actions">
+          {lead.can_edit&&<><button className="secondary" type="button" onClick={()=>beginActivity('Call')}>Log Call</button>
+            <button className="secondary" type="button" onClick={()=>beginActivity('Note')}>Add Note</button></>}
+          {schedule&&<button className="secondary" type="button" onClick={()=>setNextAction(true)}>Schedule Follow-up</button>}
+        </div>
+      </div>
       <nav aria-label="Lead details" className="lead-detail-tabs">{tabs.map(name =>
         <button className="secondary" type="button" key={name} aria-current={tab === name ? 'page' : undefined}
           onClick={() => { setLogging(false); setTab(name); }}>{name}</button>)}</nav>
@@ -126,9 +184,6 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
           ['Competitor',data.competitor], ['Lost reason',data.loss_reason ? label(workspace,'loss',data.loss_reason) : null],
         ]} />
         {data.description && <><h3>Description</h3><p className="requirement">{data.description}</p></>}
-        {lead.can_edit && data.lifecycle === 'Qualified' && data.account_id && <button type="button" className="secondary"
-          disabled={converting || busy} onClick={() => void convert()}>Create Opportunity</button>}
-        {convertNotice && <p role="status">{convertNotice}</p>}
         {lead.duplicates.length > 0 && <section className="lead-section"><h3>Potential duplicates</h3>
           <p className="muted">Compare the inquiry, contact, and equipment details before merging.</p>
           <div className="table-scroll"><table className="lead-table"><thead><tr><th scope="col">Inquiry</th><th scope="col">Hospital</th>
@@ -156,14 +211,19 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
         ['Missing contact reason',data.missing_contact_reason],
       ]} /></>}
       {tab === 'Activity Timeline' && <><div className="card-heading"><h2>{tab}</h2>
-        {lead.can_edit && <button className="secondary" type="button" onClick={() => setLogging(!logging)}>Log Activity</button>}</div>
+        {lead.can_edit && <button className="secondary" type="button" onClick={() => {setActivityPreset('');setLogging(!logging);}}>Log Activity</button>}</div>
         {logging && <form onSubmit={log} className="lead-inline-form">
-          <label>Activity type<select name="kind">{activityTypes.map(kind => <option key={kind}>{kind}</option>)}</select></label>
+          <label>Activity type<select name="kind" key={activityPreset} defaultValue={activityPreset||activityTypes[0]}>{activityTypes.map(kind => <option key={kind}>{kind}</option>)}</select></label>
           <label>Occurred at (device time)<input name="occurred_at" type="datetime-local" /></label>
           <label className="lead-span">Activity summary<textarea name="summary" required maxLength={2000} /></label>
           <button disabled={busy} type="submit">Save Activity</button>
         </form>}
         <Timeline events={timeline} workspace={workspace} /></>}
+      {tab==='Related'&&<><h2>Related records</h2><div className="avi-lead-related">
+        {relatedCards.map(([name,count,description])=><button key={name} className="secondary" type="button" onClick={()=>setTab(String(name))}>
+          <strong>{name}</strong><small>{count!==null?`${count} · ` : ''}{description}</small>
+        </button>)}
+      </div></>}
       {tab === 'Status History' && <><h2>{tab}</h2><Timeline workspace={workspace}
         events={lead.timeline.filter(event => ['Inquiry created','Stage change','Reopened','Assignment','Merge','Staff handover','Lead converted'].includes(event.kind))} /></>}
       {relatedTypes[tab] && <><h2>{tab}</h2>
@@ -177,6 +237,33 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
           : <p className="muted">Your file permissions do not allow viewing or uploading attachments for this lead.</p>}
       </>}
     </section>
+    {nextAction&&schedule&&<LeadDialog title="Schedule Follow-up" onClose={()=>setNextAction(false)}>
+      <form className="lead-form" onSubmit={event=>{
+        event.preventDefault();
+        const fields=readFields(event.currentTarget);
+        void mutate('stage',{id:data.id,version:data.row_version,stage:data.sales_stage,next_action:fields.next_action,
+          follow_up:readTime(fields.follow_up)}).then(success=>{if(success){setNextAction(false);setTab('Follow-ups');}});
+      }}>
+        <label>Next action<input name="next_action" required maxLength={500} defaultValue={data.next_action??''} /></label>
+        <label>Next follow-up date (device time)<input type="datetime-local" name="follow_up" required defaultValue={inputTime(data.next_action_due_at)} /></label>
+        {error&&<p role="alert" className="error">{error}</p>}
+        <div className="lead-form-actions"><button className="secondary" type="button" onClick={()=>setNextAction(false)}>Cancel</button>
+          <button disabled={busy}>Save Follow-up</button></div>
+      </form>
+    </LeadDialog>}
+    {confirmConvert&&<LeadDialog title="Convert Lead" onClose={()=>{if(!converting)setConfirmConvert(false);}}>
+      <div className="lead-form">
+        <p>Create an opportunity for <strong>{data.prospect_name}</strong> using the customer already linked to {lead.number}.</p>
+        <Facts rows={[
+          ['Customer account',workspace.accounts.find(account=>account.id===data.account_id)?.name ?? 'Linked customer'],
+          ['Equipment requirement',data.requirement_text],['Estimated value',money(data.expected_value)],
+        ]} />
+        <p className="muted">The lead and its activity stay available after conversion.</p>
+        {convertNotice&&<p role="alert" className="error">{convertNotice}</p>}
+        <div className="lead-form-actions"><button className="secondary" type="button" disabled={converting} onClick={()=>setConfirmConvert(false)}>Cancel</button>
+          <button type="button" disabled={converting||busy||!qualified} onClick={()=>void convert()}>{converting?'Converting…':'Create Opportunity'}</button></div>
+      </div>
+    </LeadDialog>}
     {merge && <LeadDialog title="Merge Duplicate Inquiry" onClose={() => setMerge(undefined)}>
       <form className="lead-form" onSubmit={event => {
         event.preventDefault();
