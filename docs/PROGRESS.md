@@ -168,3 +168,11 @@ Refactored the global header, grouped module navigation, and lead workspace to u
 The KPI calculation uses permission-scoped data. The trend compares still-active leads received this month with those received last month. Weekly demos use dated scheduling events, so rescheduling retains earlier activity and counts the latest appointment once. Hot Tenders is the view for active Hot leads from Government inquiry. The City & Tier column uses an accessible linked customer’s recorded tier classification when available.
 
 The 31st pilot migration, 20261127162311, installs the lead metrics, filter facets and permission-checked demo scheduling. The local replay and security advisor passed, followed by the Auth/API/Storage integration suite and browser checks. Visual checks used synthetic data in light mode, dark mode and phone layouts.
+
+## 2026-11-27 — Customer and contact directories and visiting-card lead capture
+
+M2 pilot increment. Modernized the Hospitals and Customers and Contacts directories using the Leads page styling, keeping existing profile details, forms, filters and communication links. Added manual and scan choices to lead creation. Reps can capture or upload two card sides, crop and rotate the OCR image, review extracted details, link visible master records and continue scanning. The lead transaction records the reviewed card information and links the original private files. Manual entry retains the original files when extraction is unavailable.
+
+`npm run check` passed 15 unit/database tests and the production build. The disposable stack reset, database security advisor and `npm run test:local-auth` passed. `npm run test:e2e` passed 10 tests with 2 desktop-only invitation scenarios skipped on tablet/phone as configured. Scanning tests use a synthetic successful OCR response, the real local Edge upload and Storage, and the real missing-key fallback. Physical cameras and the live OpenAI provider were not exercised.
+
+Hosted Supabase applied `20261127164949_visiting_card_lead_intake` and deployed `scan-visiting-card` with JWT verification. Activation still depends on the AVI OpenAI Edge secret. Original-card release still depends on an approved file-scanning integration. Validate automatic extraction with a synthetic visiting card when the OpenAI credential is provisioned.

@@ -28,13 +28,14 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     const files = await import('node:fs/promises').then(fs => fs.readdir('supabase/migrations'));
     for (const migration of files.filter(f => f.endsWith('.sql')).sort()) await db.exec(await readFile(`supabase/migrations/${migration}`, 'utf8'));
     await db.exec(`insert into storage.buckets(id, name, public) values ('test-bucket', 'test-bucket', false);
-      insert into storage.objects values ('avi-file-quarantine', 'synthetic-pending'), ('test-bucket', 'synthetic-other');
+      insert into storage.objects values ('avi-file-quarantine', 'synthetic-pending'), ('lead-cards', 'synthetic-card'), ('test-bucket', 'synthetic-other');
       create policy test_permissive_policy on storage.objects for all to anon, authenticated using (true) with check (true);`);
     for (const role of ['anon', 'authenticated']) {
       await db.exec(`set role ${role};`);
       const visible = await db.query('select name from storage.objects');
       assert.deepEqual(visible.rows, [{ name: 'synthetic-other' }], 'quarantine stays invisible under a permissive policy');
       await assert.rejects(db.exec("insert into storage.objects values ('avi-file-quarantine', 'synthetic-denied')"), /row-level security/i);
+      await assert.rejects(db.exec("insert into storage.objects values ('lead-cards', 'synthetic-denied')"), /row-level security/i);
       await db.exec('reset role;');
     }
     // Audit the whole migrated public schema, including tables added by future migrations.
@@ -237,7 +238,7 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
       db.query('select public.command_lead_management($1,$2,$3,$4) as result',[o1,action,key,input]).then(result => result.rows[0].result);
     await assert.rejects(leadRead({},null,o2),{code:'42501'});
     const workspace = await leadRead();
-    assert.equal(workspace.catalog.filter(entry => entry.kind==='source').length,15);
+    assert.equal(workspace.catalog.filter(entry => entry.kind==='source').length,16);
     assert.equal(workspace.catalog.filter(entry => entry.kind==='stage').length,16);
     const createInput = { fields:{ customer:'Synthetic lead workflow',source:'indiamart',contact:'Synthetic buyer',
       external_reference:'INQUIRY-001',mobile:'+91 90000 00001',email:'Pilot@Example.invalid',stage:'demo_requested',
@@ -346,6 +347,39 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     assert.equal(person.accounts.length,2);
     assert.equal(person.accounts.find(a=>a.primary).department,'NICU');
     assert.equal(person.details.whatsapp,'+919000000002');
+    const matching=await db.query('select public.find_card_matches($1,$2,$3,$4,$5) as result',
+      [o1,'Synthetic Medical Centre','09000000001','','clinic@example.invalid']);
+    assert.ok(matching.rows[0].result.customers.some(item=>item.id===west.id&&item.can_link));
+    assert.deepEqual(matching.rows[0].result.contacts.map(item=>item.id),[linked.id]);
+    await assert.rejects(db.query('select public.find_card_matches($1,$2,$3,$4,$5)',
+      [o2,'Synthetic Medical Centre','','','clinic@example.invalid']),{code:'42501'});
+    const uploadKey=crypto.randomUUID();
+    const cardKey=crypto.randomUUID();
+    const cardInput={upload_key:uploadKey,front:'jpg',back:'png',fields:{
+      source:'visiting_card',customer:'Synthetic Visiting Card',account:west.id,linked_contact_id:linked.id,
+      email:'clinic@example.invalid',salutation:'Dr.',department:'NICU',pincode:'400001'}};
+    const createCard=(input,key=cardKey)=>db.query('select public.create_card_lead($1,$2,$3) as result',[o1,key,input])
+      .then(result=>result.rows[0].result);
+    const readCards=(org,lead)=>db.query('select public.read_lead_cards($1,$2) as result',[org,lead])
+      .then(result=>result.rows[0].result);
+    await assert.rejects(createCard(cardInput),{code:'22023'});
+    await db.exec(`reset role;
+      insert into storage.objects values
+        ('lead-cards','${o1}/${u2}/${uploadKey}/front.jpg'),
+        ('lead-cards','${o1}/${u2}/${uploadKey}/back.png');
+      set role authenticated;`);
+    const cardLead=await createCard(cardInput);
+    assert.deepEqual(await createCard(cardInput),cardLead);
+    await assert.rejects(createCard({...cardInput,fields:{...cardInput.fields,department:'ICU'}}),{code:'PT409'});
+    await assert.rejects(createCard(cardInput,crypto.randomUUID()),{code:'23505'});
+    const savedCards=await readCards(o1,cardLead.id);
+    assert.equal(savedCards[0].details.department,'NICU');
+    assert.equal(savedCards[0].contact,'Synthetic Clinical Contact');
+    assert.equal(savedCards[0].has_back,true);
+    assert.doesNotMatch(JSON.stringify(savedCards),/front.jpg|back.png/);
+    await assert.rejects(readCards(o2,cardLead.id),{code:'PT404'});
+    await db.query("select public.authorize_card_request($1,'extract')",[o1]);
+    await assert.rejects(db.query("select public.authorize_card_request($1,'extract')",[o2]),{code:'42501'});
     const picker=await customerRead({kind:'contact_choices',search:'mumbai'});
     assert.ok(picker.some(account=>account.id===west.id&&account.departments.some(d=>d.key==='nicu')));
     const masterOwner=(await customerRead({},west.id)).owner;

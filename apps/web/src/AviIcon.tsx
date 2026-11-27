@@ -13,6 +13,8 @@ const paths = {
   split: 'M4 5h16v14H4zM10 5v14',
   add: 'M12 5v14M5 12h14',
   calendar: 'M4 6h16v14H4zM8 4v4m8-4v4M4 10h16',
+  camera: 'M4 7h4l2-3h4l2 3h4v13H4zM15.5 13a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z',
+  upload: 'M12 16V4M7 9l5-5 5 5M4 16v4h16v-4',
   call: 'M7 4 4 6c0 7 7 14 14 14l2-3-4-3-2 2c-3-1-5-3-6-6l2-2-3-4Z',
 } as const;
 

@@ -88,7 +88,8 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await page.getByLabel('Display name').fill('Synthetic campaign');
   await page.getByRole('button',{name:'Add Configuration',exact:true}).click();
   await expect(page.getByRole('status').getByText('Saved.',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:/Add New Lead/}).click();
+  await page.locator('summary').filter({hasText:'Add New Lead'}).click();
+  await page.getByRole('button',{name:'Manual Entry'}).click();
   const editor=page.getByRole('dialog',{name:'Add New Lead'});
   await editor.getByLabel('Lead source').selectOption('synthetic_campaign');
   await editor.getByLabel('Hospital or organisation name').fill('Synthetic close and reopen');

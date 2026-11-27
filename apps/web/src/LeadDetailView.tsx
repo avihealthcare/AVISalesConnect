@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
 import { telephone, waLink } from './customerModel';
 import { RecordFiles } from './RecordFiles';
+import { cardExtras } from './visitingCardModel';
 import { LeadDialog } from './LeadEditor';
 import { activityTypes, commandError, dateTime, inputTime, label, money, options, readFields, readTime, type LeadDetail, type LeadEvent, type Product, type Workspace } from './leadModel';
 
@@ -87,6 +88,34 @@ function SalesPath({ workspace, stage, select }: {
       {select&&item.active&&item.code!==stage?<button type="button" className="secondary" onClick={()=>select(item.code)}>{item.label}</button>
         : <span aria-current={item.code===stage?'step':undefined}>{item.label}</span>}
     </li>)}</ol>
+  </section>;
+}
+
+type SavedCard = {lead_id:string;details:Record<string,string|null>;has_back:boolean;contact:string|null;created_at:string};
+function LeadCardDetails({ db, organization, lead, documents }: {
+  db:SupabaseClient<Database>;organization:string;lead:string;documents?:boolean;
+}) {
+  const [cards,setCards] = useState<SavedCard[]>();
+  const [failed,setFailed] = useState(false);
+  useEffect(()=>{
+    let current=true;
+    void db.rpc('read_lead_cards',{p_org:organization,p_id:lead}).then(result=>{
+      if(!current)return;
+      if(result.error)setFailed(true);
+      else setCards(result.data as unknown as SavedCard[]);
+    });
+    return ()=>{current=false;};
+  },[db,organization,lead]);
+  if(failed)return <p className="muted" role="status">Visiting card details are unavailable.</p>;
+  if(!cards?.length)return null;
+  return <section className="lead-section" aria-label="Visiting cards"><h3>Visiting cards</h3>
+    {documents ? <ul className="records">{cards.map(card=><li key={card.lead_id}>
+      <strong>{card.has_back?'Original front and back':'Original front side'}</strong>
+      <p>{dateTime(card.created_at)} · Privately retained</p>
+    </li>)}</ul> : cards.map(card=><Facts key={card.lead_id} rows={[
+      ...cardExtras.flatMap(([name,title])=>card.details[name]?[[title,card.details[name]] as [string,string]]:[]),
+      ...(card.contact ? [['Linked contact',card.contact] as [string,string]] : []),
+    ]}/>)}
   </section>;
 }
 
@@ -183,6 +212,7 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
           ['Estimated conversion probability',data.probability === null ? null : `${data.probability}%`], ['Expected purchase date',data.expected_purchase_on],
           ['Competitor',data.competitor], ['Lost reason',data.loss_reason ? label(workspace,'loss',data.loss_reason) : null],
         ]} />
+        {data.source_key==='visiting_card'&&<LeadCardDetails db={db} organization={organization} lead={data.id}/>}
         {data.description && <><h3>Description</h3><p className="requirement">{data.description}</p></>}
         {lead.duplicates.length > 0 && <section className="lead-section"><h3>Potential duplicates</h3>
           <p className="muted">Compare the inquiry, contact, and equipment details before merging.</p>
@@ -233,6 +263,7 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
         <Timeline workspace={workspace} events={lead.timeline.filter(event => relatedEvents[tab].includes(event.kind))} />
       </>}
       {tab === 'Documents' && <><h2>Documents</h2>
+        <LeadCardDetails db={db} organization={organization} lead={data.id} documents/>
         {(lead.can_attach || lead.can_download) ? <RecordFiles db={db} organization={organization} record={data.id} canUpload={lead.can_attach} />
           : <p className="muted">Your file permissions do not allow viewing or uploading attachments for this lead.</p>}
       </>}

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { cardExtras, type CardField, type CardFields, type CardMatches, type MatchInputs } from './visitingCardModel';
 import type { Json } from '../../../packages/domain/database.types';
 import { dateTime, inputTime, label, options, priorities, readFields, readTime,
   type LeadDetail, type Product, type Workspace } from './leadModel';
 
-export function LeadDialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+export function LeadDialog({ title, children, onClose, className = '' }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { const current = dialog.current; current?.showModal(); return () => current?.close(); }, []);
-  return <dialog ref={dialog} className="lead-dialog" aria-labelledby="lead-dialog-title" onCancel={event => { event.preventDefault(); onClose(); }}>
+  return <dialog ref={dialog} className={`lead-dialog ${className}`} aria-labelledby="lead-dialog-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <div className="lead-dialog-header"><h2 id="lead-dialog-title">{title}</h2>
       <button className="secondary lead-close" type="button" aria-label="Close dialog" onClick={onClose}>×</button>
     </div>
@@ -15,9 +16,21 @@ export function LeadDialog({ title, children, onClose }: { title: string; childr
 }
 
 const newProduct = (): Product => ({ category:'',model:'',quantity:'1',estimated_unit_price:'',requirements:'' });
-export function LeadEditor({ workspace, lead, save, onClose, busy, error }: {
-  workspace: Workspace; lead?: LeadDetail; save: (payload: Json) => Promise<void>; onClose: () => void; busy: boolean; error: string;
-}) {
+type CardReview = {
+  fields: CardFields; matches: CardMatches | undefined; checking: boolean; matchError: boolean;
+  onMatchInput: (fields: MatchInputs) => void;
+};
+type EditorProps = {
+  workspace: Workspace; lead?: LeadDetail; save: (payload: Json, scanAnother?: boolean) => Promise<void>;
+  onClose: () => void; busy: boolean; error: string; card?: CardReview;
+};
+export function LeadEditor(props: EditorProps) {
+  return <LeadDialog title={props.lead ? `Edit ${props.lead.number}` : 'Add New Lead'} onClose={props.onClose}>
+    <LeadForm {...props}/>
+  </LeadDialog>;
+}
+
+export function LeadForm({ workspace, lead, save, onClose, busy, error, card }: EditorProps) {
   const data = lead?.data;
   const [products, setProducts] = useState(() => lead?.products.map(product => ({ id:crypto.randomUUID(), product })) ?? []);
   const [stage, setStage] = useState(data?.sales_stage ?? 'new');
@@ -28,6 +41,20 @@ export function LeadEditor({ workspace, lead, save, onClose, busy, error }: {
   const closed = data && (['won','lost','closed'].includes(previousBehavior ?? ''));
   const oldRoute = data && !data.mobile && !data.alternate_mobile && !data.email ? data.contact_route ?? '' : '';
   const [localError, setLocalError] = useState('');
+  const [account, setAccount] = useState('');
+  const [contactMatch, setContactMatch] = useState('');
+  const value = (field: CardField, previous?: string | null) => card?.fields[field]?.value ?? previous ?? '';
+  const confidence = (field: CardField) => {
+    const match = card?.fields[field];
+    return match?.value && match.confidence === 'low'
+      ? { className: 'avi-card-low', 'aria-describedby': 'card-confidence-note' } : {};
+  };
+  const matchableAccounts = card?.matches?.customers.filter(item => item.can_link &&
+    !workspace.accounts.some(option => option.id === item.id)) ?? [];
+  const linkedContact = card?.matches?.contacts.find(person => person.id === contactMatch &&
+    (!account || person.accounts.some(branch => branch.id === account)));
+  const visitingCardSource = card && workspace.catalog.some(item => item.kind === 'source' && item.code === 'visiting_card' && item.active)
+    ? 'visiting_card' : '';
 
   function updateProduct(id: string, field: keyof Product, value: string) {
     setProducts(current => current.map(row => row.id === id ? { ...row,product:{ ...row.product,[field]:value } } : row));
@@ -36,6 +63,7 @@ export function LeadEditor({ workspace, lead, save, onClose, busy, error }: {
     event.preventDefault();
     setLocalError('');
     const values = readFields(event.currentTarget);
+    if (card) values.linked_contact_id = linkedContact?.id ?? '';
     if (!values.mobile && !values.alternate_mobile && !values.email && !values.missing_contact_reason) {
       setLocalError('Enter a phone number or email, or explain why contact details are missing.');
       return;
@@ -46,33 +74,56 @@ export function LeadEditor({ workspace, lead, save, onClose, busy, error }: {
     if (data?.account_id && !workspace.accounts.some(account => account.id === data.account_id)) delete values.account;
     if (lead?.territory && !workspace.territories.some(item => item.id === lead.territory)) delete values.territory;
     void save({ id:data?.id ?? null, version:data?.row_version ?? null, fields:values,
-      products:products.map(row => row.product), open_documents:attachments });
+      products:products.map(row => row.product), open_documents:attachments },
+      (event.nativeEvent as SubmitEvent).submitter?.getAttribute('value') === 'another');
   }
 
-  return <LeadDialog title={lead ? `Edit ${lead.number}` : 'Add New Lead'} onClose={onClose}>
-    <form onSubmit={submit} className="lead-form">
+  return (
+    <form onSubmit={submit} className="lead-form" onChange={card ? event => {
+      const target: EventTarget = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (!['customer','mobile','alternate_mobile','email'].includes(target.name)) return;
+      setContactMatch('');
+      const {customer,mobile,alternate_mobile,email} = readFields(event.currentTarget);
+      card.onMatchInput({customer,mobile,alternate_mobile,email});
+    } : undefined}>
+      {card && <>
+        <p className="muted" id="card-confidence-note">Check every detail against the card. Amber fields need a closer look.</p>
+        <div aria-live="polite">
+          {card.checking && <p className="muted">Checking the customer and contact directory…</p>}
+          {card.matchError && <p className="muted">Directory matches are temporarily unavailable. You can still create the lead.</p>}
+          {card.matches && (card.matches.customers.length > 0 || card.matches.contacts.length > 0) &&
+            <div className="avi-card-matches"><strong>Existing hospital or contact found</strong>
+              <p>{[...card.matches.customers,...card.matches.contacts].map(item=>item.name).join(', ')}</p>
+              <p>Choose a link below or leave the fields unlinked to create a new inquiry.</p>
+              {card.matches.customers.some(item=>!item.can_link) && <p>Some matching hospitals are view-only for your account.</p>}
+            </div>}
+        </div>
+      </>}
       <section aria-labelledby="lead-inquiry-fields"><h3 id="lead-inquiry-fields">Inquiry</h3>
         <div className="lead-form-grid">
           <label>Lead number<input value={lead?.number ?? 'Assigned when saved'} readOnly /></label>
           <label>Creation date and time<input value={data ? dateTime(data.ingested_at) : 'Recorded when saved'} readOnly /></label>
           {!lead && <label>Received at (device time)<input name="received_at" type="datetime-local" /></label>}
-          <label>Lead source<select name="source" defaultValue={data?.source_key ?? ''} required>
+          <label>Lead source<select name="source" defaultValue={data?.source_key ?? visitingCardSource} required>
             <option value="" disabled>Select a source</option>
             {options(workspace,'source',data?.source_key).map(item => <option key={item.code} value={item.code}>{item.label}</option>)}
           </select></label>
           <label>External inquiry reference<input name="external_reference" defaultValue={data?.external_reference ?? ''} maxLength={150} /></label>
-          <label>Hospital or organisation name<input name="customer" defaultValue={data?.prospect_name ?? ''} required maxLength={200} autoFocus /></label>
+          <label>Hospital or organisation name<input name="customer" defaultValue={value('customer',data?.prospect_name)} {...confidence('customer')} required maxLength={200} autoFocus={!card} /></label>
           <label>Customer type<select name="customer_type" defaultValue={data?.customer_type ?? ''}>
             <option value="">Select type</option>{['Hospital','Clinic','Institution','Government','Distributor','Other'].map(type => <option key={type}>{type}</option>)}
           </select></label>
-          <label>Link a visible customer<select name="account" defaultValue={data?.account_id ?? ''}>
+          <label>Link a visible customer<select name="account" value={card ? account : undefined} defaultValue={card ? undefined : data?.account_id ?? ''}
+            onChange={card ? event=>{setAccount(event.target.value);setContactMatch('');} : undefined}>
             <option value="">No linked customer</option>
             {data?.account_id && !workspace.accounts.some(account => account.id === data.account_id) &&
               <option value={data.account_id}>Existing link</option>}
+            {matchableAccounts.map(item=><option key={item.id} value={item.id}>{item.name}{item.city ? ` · ${item.city}` : ''}</option>)}
             {workspace.accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
           </select></label>
-          <label>City<input name="city" defaultValue={data?.city ?? ''} maxLength={120} /></label>
-          <label>State<input name="state" defaultValue={data?.state ?? ''} maxLength={120} /></label>
+          <label>City<input name="city" defaultValue={value('city',data?.city)} {...confidence('city')} maxLength={120} /></label>
+          <label>State<input name="state" defaultValue={value('state',data?.state)} {...confidence('state')} maxLength={120} /></label>
           <label>Country<input name="country" defaultValue={data?.country ?? (lead ? '' : 'India')} maxLength={120} /></label>
           <label>Territory<select name="territory" defaultValue={lead?.territory ?? ''}>
             <option value="">No territory</option>
@@ -91,11 +142,23 @@ export function LeadEditor({ workspace, lead, save, onClose, busy, error }: {
         </div>
       </section>
       <section><h3>Contacts</h3><div className="lead-form-grid">
-        <label>Contact person<input name="contact" defaultValue={data?.contact_person ?? ''} maxLength={200} /></label>
-        <label>Designation<input name="designation" defaultValue={data?.designation ?? ''} maxLength={150} /></label>
-        <label>Mobile number<input name="mobile" type="tel" defaultValue={data?.mobile ?? (oldRoute.includes('@') ? '' : oldRoute)} maxLength={30} /></label>
-        <label>Alternate mobile number<input name="alternate_mobile" type="tel" defaultValue={data?.alternate_mobile ?? ''} maxLength={30} /></label>
-        <label>Email address<input type="email" name="email" defaultValue={data?.email ?? (oldRoute.includes('@') ? oldRoute : '')} maxLength={254} /></label>
+        {card && (card.matches?.contacts.length ?? 0) > 0 && <label>Link a matching contact
+          <select value={linkedContact?.id ?? ''} onChange={event=>setContactMatch(event.target.value)}>
+            <option value="">No linked contact</option>
+            {card.matches?.contacts.filter(person=>!account || person.accounts.some(branch=>branch.id===account)).map(person=>
+              <option key={person.id} value={person.id}>{person.name}{person.accounts.length ? ` · ${person.accounts.map(item=>item.name).join(', ')}` : ''}</option>)}
+          </select>
+        </label>}
+        <label>{card?'Contact Full Name':'Contact person'}<input name="contact" defaultValue={value('contact',data?.contact_person)} {...confidence('contact')} maxLength={200} /></label>
+        <label>Designation<input name="designation" defaultValue={value('designation',data?.designation)} {...confidence('designation')} maxLength={150} /></label>
+        <label>Mobile number<input name="mobile" type="tel" defaultValue={value('mobile',data?.mobile ?? (oldRoute.includes('@') ? '' : oldRoute))} {...confidence('mobile')} maxLength={30} /></label>
+        <label>{card?'Secondary / Landline Number':'Alternate mobile number'}<input name="alternate_mobile" type="tel" defaultValue={value('alternate_mobile',data?.alternate_mobile)} {...confidence('alternate_mobile')} maxLength={30} /></label>
+        <label>Email address<input type="email" name="email" defaultValue={value('email',data?.email ?? (oldRoute.includes('@') ? oldRoute : ''))} {...confidence('email')} maxLength={254} /></label>
+        {card && cardExtras.map(([field,title,limit])=><label key={field} className={field==='hospital_address'?'lead-span':undefined}>{title}
+          {field==='hospital_address'
+            ? <textarea name={field} defaultValue={value(field)} {...confidence(field)} maxLength={limit} rows={2}/>
+            : <input name={field} defaultValue={value(field)} {...confidence(field)} maxLength={limit}/>}
+        </label>)}
         <label>Reason for missing contact details<input name="missing_contact_reason" defaultValue={data?.missing_contact_reason ?? ''} maxLength={500} /></label>
       </div></section>
       <section><div className="card-heading"><h3>Products and Requirements</h3>
@@ -140,7 +203,8 @@ export function LeadEditor({ workspace, lead, save, onClose, busy, error }: {
       {data && <p className="muted">Source · {label(workspace,'source',data.source_key)}</p>}
       {(error || localError) && <p role="alert" className="error">{localError || error}</p>}
       <div className="lead-form-actions"><button className="secondary" type="button" onClick={onClose}>Cancel</button>
-        <button disabled={busy} type="submit">{busy ? 'Saving…' : lead ? 'Save Lead' : 'Create Lead'}</button></div>
+        <button disabled={busy} type="submit">{busy ? 'Saving…' : card ? 'Save & Create Lead' : lead ? 'Save Lead' : 'Create Lead'}</button>
+        {card && <button className="secondary" disabled={busy} type="submit" value="another">Save &amp; Scan Another</button>}</div>
     </form>
-  </LeadDialog>;
+  );
 }

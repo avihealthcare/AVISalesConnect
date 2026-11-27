@@ -46,7 +46,8 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
     await expect(page.getByRole('button', { name: 'Attachments', exact: true })).toHaveCount(0);
   }
   await open('Leads');
-  await page.getByRole('button',{name:/Add New Lead/}).click();
+  await page.locator('summary').filter({hasText:'Add New Lead'}).click();
+  await page.getByRole('button',{name:'Manual Entry'}).click();
   const editor=page.getByRole('dialog',{name:'Add New Lead'});
   await editor.getByLabel('Hospital or organisation name').fill('Synthetic Inquiry');
   await editor.getByLabel('Lead source').selectOption('indiamart');

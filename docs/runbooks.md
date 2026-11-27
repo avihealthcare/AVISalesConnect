@@ -82,3 +82,11 @@ For a disposable test, run the private Edge function locally with the loopback a
 Apply the database migrations, including `20261126105358_email_password_access.sql`, before releasing the frontend. If the pilot uses attachments, deploy the matching private file Edge function before the web release. For forward recovery, redeploy an email/password-compatible app and file handler and correct the affected authorization function in a new migration while preserving grants and audit history.
 
 For an account enrolled before this change, Supabase Auth still checks the verified factor when changing or recovering the password. A provider administrator can review and remove legacy factors with the supported Auth controls when the organization authorizes that change. Verify password recovery on an approved test identity without a factor. [Supabase Auth password update checks](https://github.com/supabase/auth/blob/master/internal/api/user.go)
+
+### Visiting-card lead intake
+
+Deploy the `visiting_card_lead_intake` migration followed by the `scan-visiting-card` Edge function with JWT verification. Set `AVI_CARD_ALLOWED_ORIGIN` to the production CRM origin if it differs from the AVI SalesConnect Netlify pilot. Configure the AVI OpenAI project credential as the Supabase Edge secret `OPENAI_API_KEY` to enable automatic extraction. Keep it out of browser variables, Git, chat and logs. Test with a synthetic card before enabling the feature for wider staff. Automatic extraction can be disabled by removing the Edge secret. The manual review and original-image save path continues to work. The function limits each member to 40 attempts per action per hour.
+
+The private `lead-cards` bucket retains the exact supplied files, while only prepared images enter OCR. Keep card files isolated from direct download. Review any orphaned uploads through an authorized server process and reconcile their paths against attachment records before cleanup. Release and download require separate integration with the approved clean-file workflow.
+
+For local browser verification, serve Edge functions with the loopback app as `AVI_CARD_ALLOWED_ORIGIN` and with no provider key. Pass `TEST_LOCAL_CARD_EDGE=yes` to the browser tests. A synthetic model response exercises the successful review, and the actual local function handles uploads and the missing-key fallback.

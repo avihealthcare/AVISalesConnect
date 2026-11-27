@@ -589,6 +589,11 @@ export type Database = {
         Args: { p_org: string; p_id: string; p_key: string; p_version: number; p_due: string; p_note?: string };
         Returns: Json;
       };
+      create_card_lead: { Args: { p_org: string; p_key: string; p_input: Json }; Returns: Json };
+      find_card_matches: {
+        Args: { p_org: string; p_hospital: string; p_phone: string; p_secondary: string; p_email: string }; Returns: Json;
+      };
+      read_lead_cards: { Args: { p_org: string; p_id: string }; Returns: Json };
       read_customer_master: {
         Args: { p_org: string; p_query?: Json; p_id?: string };
         Returns: Json;

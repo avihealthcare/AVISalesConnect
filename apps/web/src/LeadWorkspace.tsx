@@ -4,6 +4,7 @@ import type { Database, Json } from '../../../packages/domain/database.types';
 import { AviIcon } from './AviIcon';
 import { LeadImport } from './LeadImport';
 import { LeadDialog, LeadEditor } from './LeadEditor';
+import { VisitingCardScanner } from './VisitingCardScanner';
 import { LeadDetailView, StageChange } from './LeadDetailView';
 import { LeadSettings } from './LeadSettings';
 import { commandError, dateTime, label, money, priorities, readFields, readTime, type LeadConsoleMetrics, type LeadDetail, type LeadRow, type Workspace } from './leadModel';
@@ -91,7 +92,8 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
   const [detail,setDetail]=useState<LeadDetail>();
   const [leadId,openLead]=useState<string>();
   const [tab,setTab]=useState('Overview');
-  const [dialog,setDialog]=useState<'create'|'edit'|'stage'|'assignment'|'save-view'|'import'|'demo'>();
+  const createMenu = useRef<HTMLDetailsElement>(null);
+  const [dialog,setDialog]=useState<'create'|'scan'|'edit'|'stage'|'assignment'|'save-view'|'import'|'demo'>();
   const [settingsOpen,setSettingsOpen]=useState(false);
   const fileMenu=useRef<HTMLDetailsElement>(null);
   const viewsMenu=useRef<HTMLDetailsElement>(null);
@@ -298,8 +300,18 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
         </details>}
         {listing?.can_settings&&<button className="secondary avi-with-icon" type="button" aria-expanded={settingsOpen}
           onClick={()=>{setSettingsOpen(!settingsOpen);setError('');}}><AviIcon name="gear"/>Lead Settings</button>}
-        {listing?.can_create&&<button className="avi-primary avi-with-icon" type="button" onClick={()=>{setDialog('create');setError('');}}>
-          <AviIcon name="add"/>Add New Lead</button>}
+        {listing?.can_create&&<details ref={createMenu} className="avi-action-menu avi-create-lead-menu"
+          onKeyDown={event=>{if(event.key==='Escape'&&event.currentTarget.open){event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus();}}}>
+          <summary className="avi-primary"><AviIcon name="add"/>Add New Lead <AviIcon name="chevron" size={13}/></summary>
+          <div>
+            <button className="secondary" type="button" onClick={()=>{
+              if(createMenu.current)createMenu.current.open=false;setDialog('create');setError('');
+            }}>Manual Entry</button>
+            <button className="secondary" type="button" onClick={()=>{
+              if(createMenu.current)createMenu.current.open=false;setDialog('scan');setError('');
+            }}><strong>Scan Visiting Card</strong><small>Auto-fill hospital, doctor &amp; contact details via AI</small></button>
+          </div>
+        </details>}
       </div></div>}
     {message && <p role="status" className="lead-feedback">{message}</p>}
     {error && !dialog && <p role="alert" className="error lead-feedback">{error}</p>}
@@ -418,6 +430,11 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
           <button disabled={busy}>Save Demo</button></div>
       </form>
     </LeadDialog>}
+    {listing&&dialog==='scan'&&<VisitingCardScanner db={db} organization={organization} workspace={listing} close={clearInFlight}
+      saved={(result,another,documents)=>{
+        refresh(value=>value+1);
+        if(!another){setDialog(undefined);open(result.id,documents?'Documents':'Overview');announce(`${result.number} saved.`);}
+      }}/>}
     {listing && (dialog==='create' || (dialog==='edit'&&activeDetail?.can_edit)) &&
       <LeadEditor key={dialog} workspace={listing} lead={dialog==='edit'?activeDetail:undefined} save={saveEditor} onClose={clearInFlight} busy={busy} error={error} />}
     {dialog==='stage'&&listing&&activeDetail?.can_edit && <StageChange workspace={listing} lead={activeDetail} initialStage={stageChoice} busy={busy} error={error} onClose={clearInFlight}
