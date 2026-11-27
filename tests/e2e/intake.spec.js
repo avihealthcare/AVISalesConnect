@@ -61,6 +61,7 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
   if (info.project.name === 'desktop') {
     await editor.getByLabel('Current sales stage').selectOption('demo_requested');
     await editor.getByLabel('Next action').fill('Confirm the demonstration date');
+    await editor.getByLabel('Expected order value (INR)').fill('1250000');
     await editor.getByLabel('Product specifications or requirements').fill('Synthetic equipment requirement');
     for (const [model,quantity,price] of [['Synthetic warmer','2','2000.50'],['Synthetic monitor','3','500.00']]) {
       await editor.getByRole('button',{name:'Add product',exact:true}).click();
@@ -87,10 +88,24 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
   }
   await page.getByRole('button',{name:'Back to leads',exact:false}).click();
   if (info.project.name === 'desktop') {
-    await page.getByRole('button',{name:'Kanban Pipeline',exact:true}).click();
+    await expect(page.getByRole('banner').getByRole('button',{name:'Notifications',exact:true})).toBeVisible();
+    expect(await page.getByRole('banner').evaluate(element=>element.getBoundingClientRect().height)).toBe(56);
+    await page.keyboard.press('Control+k');
+    await expect(page.getByLabel('Search hospitals and leads')).toBeFocused();
+    await expect(page.getByRole('region',{name:'Lead performance'})).toContainText('₹12.5 L');
+    await page.getByRole('row',{name:/Synthetic Inquiry/}).hover();
+    await page.getByRole('button',{name:'Schedule demo for Synthetic Inquiry'}).click();
+    const demo=page.getByRole('dialog',{name:'Schedule Demo',exact:true});
+    await demo.getByLabel('Demo date and time').fill('2036-12-02T14:00');
+    await demo.getByLabel('Equipment or trial details').fill('Synthetic clinical demonstration');
+    await demo.getByRole('button',{name:'Save Demo',exact:true}).click();
+    await expect(page.getByText('Demo or trial scheduled.',{exact:true})).toBeVisible();
+    await expect(page.getByRole('row',{name:/Synthetic Inquiry/})).toContainText('Demo Scheduled');
+    await page.getByRole('button',{name:'Kanban',exact:true}).click();
     await expect(page.getByRole('region',{name:'Demonstration Requested'}).getByText('Synthetic Inquiry')).toBeVisible();
     await page.getByRole('button',{name:'Table',exact:true}).click();
-    await page.getByText('Import leads from CSV', { exact: true }).click();
+    await page.getByText('Import / Export',{exact:true}).click();
+    await page.getByRole('button',{name:'Import leads from CSV',exact:true}).click();
     await page.getByLabel('CSV file').setInputFiles({
       name: 'synthetic.csv', mimeType: 'text/csv',
       buffer: Buffer.from('prospect_name,received_at,contact_route,requirement_text\r\n' +
@@ -98,11 +113,12 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
     });
     await page.getByRole('button', { name: 'Import 1 valid row' }).click();
     await expect(page.getByText('1 CSV row saved or matched to your earlier import.')).toBeVisible();
+    await page.getByRole('dialog',{name:'Import leads from CSV',exact:true}).getByRole('button',{name:'Close dialog'}).click();
     await expect(page.getByText('Two, quoted items')).toBeVisible();
     await page.getByRole('button',{name:'Filters',exact:true}).click();
     await page.getByRole('combobox',{name:'Source',exact:true}).selectOption('indiamart');
     await expect(page.getByText('Two, quoted items')).toHaveCount(0);
-    await page.getByRole('button',{name:'Split View',exact:true}).click();
+    await page.getByRole('button',{name:'Split',exact:true}).click();
     const queue=page.getByRole('navigation',{name:'Leads in this view',exact:true});
     await queue.getByRole('button',{name:/Synthetic Inquiry/}).click();
     await expect(page.getByRole('heading',{name:'Synthetic Inquiry',exact:true})).toBeVisible();
@@ -121,15 +137,17 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
     const saved=page.getByRole('dialog',{name:'Save Lead View',exact:true});
     await saved.getByLabel('View name').fill('IndiaMART split queue');
     await saved.getByRole('button',{name:'Save View',exact:true}).click();
+    await page.locator('summary').filter({hasText:'IndiaMART split queue'}).click();
     await page.getByRole('button',{name:'Pin as Default',exact:true}).click();
     await page.reload();
     await open('Leads');
-    await expect(page.getByRole('combobox',{name:'Lead view',exact:true}).locator('option:checked')).toHaveText('IndiaMART split queue');
-    await expect(page.getByRole('button',{name:'Split View',exact:true})).toHaveAttribute('aria-pressed','true');
+    await expect(page.locator('summary').filter({hasText:'IndiaMART split queue'})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Split',exact:true})).toHaveAttribute('aria-pressed','true');
+    await page.locator('summary').filter({hasText:'IndiaMART split queue'}).click();
     await page.getByRole('button',{name:'Unpin Default',exact:true}).click();
     await page.getByRole('button',{name:'Remove Saved View',exact:true}).click();
 
-    await page.getByRole('button',{name:'Kanban Pipeline',exact:true}).click();
+    await page.getByRole('button',{name:'Kanban',exact:true}).click();
     const card=page.getByRole('region',{name:'Demonstration Requested',exact:true}).locator('[draggable=true]');
     const target=page.getByRole('region',{name:'Qualified',exact:true});
     const transfer=await page.evaluateHandle(()=>new DataTransfer());
@@ -164,6 +182,7 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
   await page.reload();
   await open('Leads');
   await expect(page.getByText('Synthetic Inquiry', { exact: true })).toBeVisible();
+  await page.getByLabel('User profile',{exact:true}).click();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });

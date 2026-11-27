@@ -26,7 +26,7 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.getByRole('button', { name: 'Administration' }).click();
   await expect(page.getByRole('heading', { name: 'Staff administration' })).toBeVisible();
-  await expect(page.getByText('Synthetic administrator', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region',{name:'Staff administration'}).getByText('Synthetic administrator', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Deactivate access' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Add expense rule' }).click();
@@ -109,6 +109,7 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await expect(page.getByText('Synthetic customer returned',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:/Back to leads/}).click();
   const download=page.waitForEvent('download');
+  await page.getByText('Import / Export',{exact:true}).click();
   await page.getByRole('button',{name:'Export Excel',exact:true}).click();
   expect((await download).suggestedFilename()).toBe('salesconnect-leads.xml');
 

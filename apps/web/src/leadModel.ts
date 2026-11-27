@@ -3,7 +3,7 @@ export type Person = { id: string; name: string };
 export type Product = { category: string; model: string; quantity: string | number; estimated_unit_price: string | number | null; requirements: string | null };
 export type LeadRow = {
   id: string; version: number; number: string; customer: string; contact: string | null; designation: string | null; email: string | null;
-  mobile: string | null; city: string | null; state: string | null; source: string; stage: string; behavior: string;
+  mobile: string | null; city: string | null; state: string | null; city_tier?: string | null; demo_at?: string | null; source: string; stage: string; behavior: string;
   priority: string; owner: string | null; owner_name: string | null; territory_name: string | null; value: string | null;
   received_at: string; updated_at: string; follow_up: string | null; first_response_overdue: boolean; products: string | null;
 };
@@ -58,3 +58,8 @@ export function commandError(error: { code?: string; message?: string } | null) 
   if (error?.code?.startsWith('22') || error?.code === '23514' || error?.code === '23502') return 'Review the field values and try again.';
   return 'The save could not be confirmed. Retry with the same entries.';
 }
+
+export type LeadConsoleMetrics = {
+  active:number;pipeline:string|null;current_month:number;previous_month:number;week_demos:number;
+  overdue:number;unread:number;categories:string[];cities:string[];
+};

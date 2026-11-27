@@ -378,6 +378,28 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     await db.exec(`select set_config('request.jwt.claim.sub','${u3}',false);`);
     await assert.rejects(customerRead({},west.id),{code:'PT404'});
     await db.exec(`select set_config('request.jwt.claim.sub','${u2}',false);`);
+    const consoleRead=org=>db.query('select public.read_lead_console($1) as result',[org]).then(result=>result.rows[0].result);
+    await assert.rejects(consoleRead(o2),{code:'42501'});
+    const summary=await consoleRead(o1);
+    assert.ok(summary.active>0);
+    assert.ok(summary.categories.includes('Test'));
+    const metricsLead=await leadCommand('create',{fields:{customer:'Synthetic console demo',source:'government',priority:'Hot',city:'Mumbai',
+      stage:'demo_requested',next_action:'Test follow-up',missing_contact_reason:'Synthetic contact pending',value:'1500000'},
+      products:[{category:'Synthetic monitors',model:'Test monitor',quantity:'2'}]});
+    const filtered=await leadRead({view:'hot_tenders',city:'Mumbai',product_category:'Synthetic monitors'});
+    assert.equal(filtered.total,1);
+    assert.equal(filtered.rows[0].id,metricsLead.id);
+    const scheduleKey=crypto.randomUUID();
+    const due=new Date(Date.now()+1000*60*10).toISOString();
+    const scheduleDemo=(version=metricsLead.version,key=scheduleKey)=>db.query(
+      'select public.schedule_lead_demo($1,$2,$3,$4,$5,$6) as result',
+      [o1,metricsLead.id,key,version,due,'Synthetic trial']).then(result=>result.rows[0].result);
+    const scheduled=await scheduleDemo();
+    assert.deepEqual(await scheduleDemo(),scheduled);
+    await assert.rejects(scheduleDemo(metricsLead.version,crypto.randomUUID()),{code:'PT409'});
+    const scheduledDetail=await leadRead({},metricsLead.id);
+    assert.equal(scheduledDetail.timeline.filter(e=>e.kind==='Demo scheduled').length,1);
+    assert.equal((await leadRead({search:'Synthetic console demo'})).rows[0].demo_at!==null,true);
     const readPolicy = organization => db.query('select public.read_operating_policy_settings($1) as settings', [organization]);
     assert.equal((await readPolicy(o1)).rows[0].settings.expense, null, 'a live email/password session can read admin settings');
     await assert.rejects(readPolicy(o2), {code:'42501'});

@@ -584,6 +584,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      read_lead_console: { Args: { p_org: string }; Returns: Json; };
+      schedule_lead_demo: {
+        Args: { p_org: string; p_id: string; p_key: string; p_version: number; p_due: string; p_note?: string };
+        Returns: Json;
+      };
       read_customer_master: {
         Args: { p_org: string; p_query?: Json; p_id?: string };
         Returns: Json;

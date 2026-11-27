@@ -137,3 +137,5 @@ Extend the existing lead and resource records in place. Keep their identifiers a
 ### Customer and contact master
 
 Extend account IDs in place with stable human-readable numbers and versioned master data. Groups normalize names within an organization and branches keep their own account IDs. Contacts retain their field-record IDs and primary account. Additional organization links carry the relevant department and same-organization foreign keys. Writes use expected versions, operation receipts and redacted audit events. Customer history reads apply independent visibility rules to each related module. Recovery uses a forward correction while the previous account and contact schemas remain readable.
+
+The lead console derives KPI and facet data from visible lead records. Scheduled demos are append-only lead events with explicit times, version checks and audited writes. The current schedule comes from the latest scheduling event per lead. City tiers are shown only when an accessible linked customer has an explicit tier classification. A forward correction can change aggregation or presentation while preserving schedule history.

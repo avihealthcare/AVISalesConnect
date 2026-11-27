@@ -160,3 +160,11 @@ The 30th hosted migration, 20261127092528, installs the customer and contact mas
 The Leads workspace now uses an AVI-branded layout informed by Salesforce's lead list, record, and pipeline workflows. Added a view selector, browser-local saved and pinned views, a split-view queue, a filter panel, row quick actions and stage moves from Kanban. Lead records show the current sales stage, contact actions, the next action and follow-up, activity logging, related records and a conversion confirmation. Conversion still uses the linked customer and the existing permission-checked opportunity command. Configuration and CRM data keep their existing database schema and permissions.
 
 Verified using the production build, unit/database checks, local browser workflows and visual previews at desktop and phone sizes. Browser checks cover filtered split view, pinned preferences after reload, follow-up scheduling, Kanban stage changes and creating an opportunity from a qualified lead.
+
+## 2026-11-27 — Compact Hospital & Institutional Leads console
+
+Refactored the global header, grouped module navigation, and lead workspace to use Inter and AVI’s Navy Blue and Medical Blue. Leads now has a compact command area, unified data card, view tabs and saved views, quick filters, responsive table skeletons, and hover/focus quick actions. Import and exports are grouped in the page header, while notifications are available from the global bell.
+
+The KPI calculation uses permission-scoped data. The trend compares still-active leads received this month with those received last month. Weekly demos use dated scheduling events, so rescheduling retains earlier activity and counts the latest appointment once. Hot Tenders is the view for active Hot leads from Government inquiry. The City & Tier column uses an accessible linked customer’s recorded tier classification when available.
+
+The 31st pilot migration, 20261127162311, installs the lead metrics, filter facets and permission-checked demo scheduling. The local replay and security advisor passed, followed by the Auth/API/Storage integration suite and browser checks. Visual checks used synthetic data in light mode, dark mode and phone layouts.

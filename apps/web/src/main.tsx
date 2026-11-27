@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 
 import { createRoot } from 'react-dom/client';
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../../packages/domain/database.types';
+import '@fontsource-variable/inter';
 import './style.css';
 const IntakeWorkspace = lazy(async () => ({ default: (await import('./IntakeWorkspace')).IntakeWorkspace }));
 

@@ -10,7 +10,7 @@ const tabs = ['Overview','Products and Requirements','Contacts','Activity Timeli
 const relatedTypes: Record<string,string> = {'Follow-ups':'task','Field Visits':'visit','Quotations':'quotation','Demonstrations':'demo','Orders':'financial_reference'};
 const recordLabels: Record<string,string> = { task:'Follow-up',visit:'Visit',quotation:'Quotation',demo:'Demonstration',financial_reference:'Order' };
 const relatedEvents: Record<string,string[]> = {'Follow-ups':['Follow-up','Follow-up scheduled'],'Field Visits':['Visit'],'Quotations':['Quotation'],
-  'Demonstrations':['Demonstration'],'Orders':['Order']};
+  'Demonstrations':['Demonstration','Demo scheduled'],'Orders':['Order']};
 
 function Facts({ rows }: { rows: [string,string | number | null | undefined][] }) {
   return <dl className="lead-facts">{rows.map(([key,value]) => <div key={key}><dt>{key}</dt><dd>{value ?? '—'}</dd></div>)}</dl>;

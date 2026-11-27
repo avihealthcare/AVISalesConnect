@@ -125,8 +125,7 @@ export function LeadImport({ db, organization, onSaved }: {
     }
   }
 
-  return <details className="panel">
-    <summary>Import leads from CSV</summary>
+  return <div className="lead-form">
     <p>Upload a UTF-8 file and review its rows before saving. Keep the template headers in any order.</p>
     <a href={`data:text/csv;charset=utf-8,${encodeURIComponent(template)}`} download="salesconnect-leads-template.csv">Download CSV template</a>
     <label>CSV file<input type="file" accept=".csv,text/csv" disabled={busy} onChange={preview} /></label>
@@ -137,5 +136,5 @@ export function LeadImport({ db, organization, onSaved }: {
       </table></div>
       <button type="button" disabled={busy || !ready} onClick={commit}>{busy ? 'Importing…' : `Import ${ready} valid ${ready === 1 ? 'row' : 'rows'}`}</button>
     </>}
-  </details>;
+  </div>;
 }
