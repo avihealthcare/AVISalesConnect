@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
 import { StaffAdministration } from './StaffAdministration';
+import { UserManagement } from './UserManagement';
 import { CustomerWorkspace } from './CustomerWorkspace';
 import { PolicySettings } from './PolicySettings';
 import { LeadWorkspace } from './LeadWorkspace';
@@ -12,6 +13,7 @@ import { Dashboard } from './Dashboard';
 import { SalesField, type SalesFieldKind } from './SalesField';
 import { AviIcon } from './AviIcon';
 import type { LeadConsoleMetrics } from './leadModel';
+import {userManagementEnabled} from './workspaceFeatures';
 import { RecordSearch } from './RecordSearch';
 
 type Screen = 'home' | 'accounts' | 'leads' | 'opportunities' | 'administration' | 'settings' | 'distributors' | 'reports' | 'tenders' | 'expenses' | SalesFieldKind;
@@ -20,9 +22,7 @@ type OrganizationMembership = { id: string; organization_id: string; organizatio
 
 const navigation: { id: Screen; label: string; permission?: string; salesField?: boolean }[] = [
   { id: 'home', label: 'Dashboard' }, { id: 'leads', label: 'Leads', permission: 'lead.read' },
-  { id: 'accounts', label: 'Hospitals and Customers', permission: 'account.read' },
-  { id: 'site', label: 'Customer Sites', permission: 'site.read', salesField: true },
-  { id: 'contact', label: 'Contacts', permission: 'contact.read' },
+  { id: 'accounts', label: 'Customers', permission: 'account.read' },
   { id: 'opportunities', label: 'Opportunities', permission: 'opportunity.read' },
   { id: 'attendance_session', label: 'Attendance', permission: 'attendance_session.read', salesField: true },
   { id: 'visit', label: 'Field Visits', permission: 'visit.read', salesField: true },
@@ -33,27 +33,45 @@ const navigation: { id: Screen; label: string; permission?: string; salesField?:
   { id: 'quotation', label: 'Quotations', permission: 'quotation.read', salesField: true },
   { id: 'financial_reference', label: 'Sales Orders', permission: 'financial_reference.read', salesField: true },
   { id: 'demo', label: 'Demonstrations', permission: 'demo.read', salesField: true },
-  { id: 'distributors', label: 'Distributors', permission: 'account.read' },
   { id: 'tenders', label: 'Tenders' },
   { id: 'expenses', label: 'Expenses' },
   { id: 'target', label: 'Sales Targets', permission: 'target.read', salesField: true },
   { id: 'reports', label: 'Reports', permission: 'lead.read' },
-  { id: 'administration', label: 'Administration', permission: 'staff.directory.read' },
+  { id: 'administration', label: 'User Management', permission: 'staff.directory.read' },
   { id: 'settings', label: 'Settings' },
 ];
 const navigationGroups: { title?:string; ids:Screen[] }[] = [
-  {title:'CRM & Pipeline',ids:['home','leads','accounts','site','contact','opportunities']},
+  {title:'CRM & Pipeline',ids:['home','leads','accounts','opportunities']},
   {title:'Field Operations',ids:['attendance_session','visit','visit_plan','task']},
   {title:'Catalog & Sales',ids:['product','equipment','demo','quotation','financial_reference']},
-  {ids:['distributors','tenders','expenses','target','reports','administration','settings']},
+  {ids:['tenders','expenses','target','reports']},
+  {title:'Administration',ids:['administration','settings']},
 ];
-const navigationPermissions = navigation.flatMap(item => item.permission ? [item.permission] : []);
+const moduleForScreen:Partial<Record<Screen,string>>={
+  home:'dashboard',accounts:'customers',leads:'leads',opportunities:'opportunities',attendance_session:'attendance',
+  visit:'field_visits',visit_plan:'visit_planner',task:'follow_ups',product:'products',equipment:'equipment',quotation:'quotations',
+  financial_reference:'orders',demo:'demonstrations',tenders:'tenders',expenses:'expenses',target:'targets',reports:'reports',
+};
+
+const routes:Partial<Record<Screen,string>>={home:'dashboard',accounts:'customers',contact:'contacts',site:'customer-sites',administration:'users'};
+function readRoute():{screen:Screen;customerTab:'accounts'|'site'|'contact';name:string} {
+  const [,slug,detail]=window.location.pathname.split('/');
+  const saved=navigation.find(item=>(routes[item.id]??item.id)===slug)?.id ?? 'home';
+  const customerTab=slug==='contacts'||detail==='contacts'?'contact':slug==='customer-sites'||detail==='sites'?'site':'accounts';
+  return {screen:['hospitals','accounts','contacts','customer-sites','distributors'].includes(slug)?'accounts':saved,
+    customerTab,name:saved==='leads'&&detail&&/^[0-9a-f-]{36}$/i.test(detail)?detail:''};
+}
+function routePath(screen:Screen,name:string,destination:Screen) {
+  if(screen==='accounts'&&(destination==='contact'||destination==='site'))return '/customers/'+(destination==='contact'?'contacts':'sites');
+  return '/'+(routes[screen]??screen)+(screen==='leads'&&/^[0-9a-f-]{36}$/i.test(name)?'/'+name:'');
+}
 
 export function IntakeWorkspace({ db, memberships, signOut, busy }: {
   db: SupabaseClient<Database>; memberships: OrganizationMembership[]; signOut: () => void; busy: boolean;
 }) {
   const [organization, selectOrganization] = useState(memberships[0].organization_id);
-  const [screen, setScreen] = useState<Screen>('home');
+  const [screen, setScreen] = useState<Screen>(()=>readRoute().screen);
+  const [customerTab,setCustomerTab]=useState<'accounts'|'site'|'contact'>(()=>readRoute().customerTab);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const searchInput=useRef<HTMLInputElement>(null);
@@ -65,27 +83,50 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
   const refreshSummary=useCallback(()=>setSummaryRevision(value=>value+1),[]);
   const [searchText, setSearchText] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [initialName, setInitialName] = useState('');
+  const [initialName, setInitialName] = useState(()=>readRoute().name);
   const [initialView, setInitialView] = useState<LeadView>('all');
   const [dark, setDark] = useState(() => localStorage.getItem('salesconnect-color-mode') === 'dark');
-  const [access, setAccess] = useState<{ organization: string; permissions: Set<string>; settings: boolean }>();
+  const [access, setAccess] = useState<{ organization: string; permissions: Set<string>; modules:Set<string>; admin:boolean; userManagement:boolean }>();
   const current = memberships.find(member => member.organization_id === organization);
   const permissions = access?.organization === organization ? access.permissions : undefined;
-  const canViewAdministration = permissions?.has('staff.directory.read');
-  const canViewSettings = access?.organization === organization && access.settings;
+  const canViewSettings = access?.organization === organization && access.admin;
+  const canViewAdministration=canViewSettings;
+  const [accessRevision,refreshAccess]=useState(0);
   const canUseSearch = permissions?.has('account.read') || permissions?.has('lead.read');
   useEffect(() => {
     let current = true;
-    void Promise.all([
-      db.from('role_permissions').select('permission_code').eq('organization_id', organization)
-        .in('permission_code', [...navigationPermissions, 'lead.create', 'lead.contact', 'lead.convert']),
-      db.from('roles').select('id').eq('organization_id', organization).eq('code', 'super_admin').limit(1),
-    ]).then(([grants, role]) => {
-      if (current) setAccess({ organization, permissions: new Set((grants.data ?? []).map(row => row.permission_code)),
-        settings: !role.error && Boolean(role.data?.length) });
-    });
+    async function loadAccess() {
+      const result=userManagementEnabled?await db.rpc('workspace_access',{p_org:organization}):undefined;
+      if(!current)return;
+      if(!result||result.error?.code==='PGRST202'){
+        const [grants,roles]=await Promise.all([
+          db.from('role_permissions').select('permission_code').eq('organization_id',organization),
+          db.from('roles').select('id').eq('organization_id',organization).eq('code','super_admin').limit(1),
+        ]);
+        if(!current)return;
+        const legacy=new Set((grants.data??[]).map(row=>row.permission_code));
+        const modules=new Set(['dashboard','tenders','expenses']);
+        for(const item of navigation){
+          const slug=moduleForScreen[item.id];
+          if(slug&&item.permission&&legacy.has(item.permission))modules.add(slug);
+        }
+        if(legacy.has('site.read')||legacy.has('contact.read'))modules.add('customers');
+        setAccess({organization,permissions:legacy,modules,admin:!roles.error&&Boolean(roles.data?.length),userManagement:false});
+        return;
+      }
+      if(result.error){setAccess({organization,permissions:new Set(),modules:new Set(),admin:false,userManagement:false});return;}
+      const data=result.data as unknown as {admin:boolean;modules:string[];permissions:string[]};
+      setAccess({organization,permissions:new Set(data.permissions),modules:new Set(data.modules),admin:data.admin,userManagement:true});
+    }
+    void loadAccess();
     return () => { current = false; };
-  }, [db, organization]);
+  }, [db, organization,accessRevision]);
+
+  useEffect(()=>{
+    const check=()=>refreshAccess(value=>value+1);
+    window.addEventListener('focus',check);
+    return ()=>window.removeEventListener('focus',check);
+  },[]);
 
   useEffect(()=>{
     let current=true;
@@ -119,14 +160,34 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
   const initials=profile.trim().split(/\s+/).slice(0,2).map(item=>item.charAt(0).toUpperCase()).join('') || 'AV';
 
   function go(destination: Screen, name = '', view: LeadView = 'all') {
-    setScreen(destination);setNotificationOpen(false);
+    const customerSection=destination==='contact'||destination==='site'||destination==='distributors';
+    const next=customerSection?'accounts':destination;
+    setCustomerTab(destination==='contact'||destination==='site'?destination:'accounts');
+    const path=routePath(next,name,destination);
+    if(window.location.pathname!==path)window.history.pushState(null,'',path);
+    setScreen(next);setNotificationOpen(false);
     setSearchTerm('');
     setInitialName(name);
     setInitialView(view);
     setNavigationOpen(false);
   }
+  useEffect(()=>{
+    const restore=()=>{const route=readRoute();setScreen(route.screen);setCustomerTab(route.customerTab);
+      setInitialName(route.name);setInitialView('all');setSearchTerm('');setNavigationOpen(false);};
+    window.addEventListener('popstate',restore);
+    return ()=>window.removeEventListener('popstate',restore);
+  },[]);
   const selected = navigation.find(item => item.id === screen);
-  const title = searchTerm ? 'Search' : selected?.label;
+  const allowed=(item:typeof navigation[number])=>{
+    if(item.id==='administration'||item.id==='settings')return Boolean(canViewSettings);
+    if(!access||access.organization!==organization)return item.id==='home';
+    if(access.admin)return true;
+    const slug=moduleForScreen[item.id];
+    return Boolean(slug&&access.modules.has(slug));
+  };
+  const restricted=Boolean(selected&&permissions&&!allowed(selected));
+  const labelFor=(item:typeof navigation[number])=>item.id==='administration'&&!access?.userManagement?'Administration':item.label;
+  const title = searchTerm ? 'Search' : selected ? labelFor(selected) : '';
   return <div className="sales-shell" data-theme={dark ? 'dark' : 'light'} data-nav-open={navigationOpen} data-collapsed={collapsed}>
     <a className="skip-link" href="#workspace-content">Skip to content</a>
     <aside className="sales-sidebar" id="sales-navigation">
@@ -136,11 +197,11 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
       <nav aria-label="SalesConnect">
         {navigationGroups.map(group=>{
           const items=group.ids.map(id=>navigation.find(item=>item.id===id)!)
-            .filter(item=>(item.id!=='settings'||canViewSettings)&&(!item.permission||permissions?.has(item.permission)));
+            .filter(allowed);
           return items.length>0&&<div className="sales-nav-section" key={group.title??'remaining'}>
             {group.title&&<p className="sales-nav-heading">{group.title}</p>}
             {items.map(item=><button key={item.id} aria-current={!searchTerm&&item.id===screen?'page':undefined}
-              onClick={()=>go(item.id)}>{item.label}</button>)}
+              onClick={()=>go(item.id)}>{item.id==='accounts'&&<AviIcon name="building"/>}{labelFor(item)}</button>)}
           </div>;
         })}
       </nav>
@@ -181,25 +242,43 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
         </div>
       </header>
       <main className="sales-content" id="workspace-content" tabIndex={-1}>
-        {searchTerm ? <RecordSearch key={organization + searchTerm} db={db} organization={organization} term={searchTerm} open={go} /> : <>
+        {!permissions&&screen!=='home' ? <p role="status">Checking module access…</p> : restricted&&!searchTerm ? <section className="panel"><h1>Access Restricted</h1><p>Contact your administrator for access to this module.</p>{access?.modules.has('dashboard')&&<button onClick={()=>go('home')}>Go to Dashboard</button>}</section> : searchTerm ? <RecordSearch key={organization + searchTerm} db={db} organization={organization} term={searchTerm} open={go} /> : <>
         {screen === 'home' && <Dashboard key={organization} db={db} organization={organization} permissions={permissions}
           openLeads={() => go('leads')} openActiveLeads={() => go('leads', '', 'active')}
           openOverdueLeads={() => go('leads', '', 'overdue')}
           openAccounts={() => go('accounts')} openOpportunities={() => go('opportunities')} />}
-        {screen === 'administration' && canViewAdministration && <StaffAdministration key={organization} db={db} organization={organization} />}
+        {screen==='administration'&&canViewAdministration&&(access?.userManagement
+          ? <UserManagement key={organization} db={db} organization={organization} onChanged={()=>refreshAccess(value=>value+1)}/>
+          : <StaffAdministration key={organization} db={db} organization={organization}/>)}
         {screen === 'settings' && canViewSettings && <PolicySettings key={organization} db={db} organization={organization} />}
         {screen === 'tenders' && current && <Tenders key={organization} db={db} organization={organization} membership={current.id} />}
         {screen === 'expenses' && current && <Expenses key={organization} db={db} organization={organization} membership={current.id} />}
-        {screen === 'reports' && permissions?.has('lead.read') && <Reports key={organization}
-          db={db} organization={organization} canReadOpportunities={permissions.has('opportunity.read')} />}
+        {screen==='reports'&&permissions&&(permissions.has('lead.read')||permissions.has('opportunity.read') ?
+          <Reports key={organization} db={db} organization={organization} canReadLeads={permissions.has('lead.read')}
+            canReadOpportunities={permissions.has('opportunity.read')}/>:
+          <section className="panel"><h1>Reports</h1><p>Your lead and opportunity permissions determine which reports are available.</p></section>)}
         {selected?.salesField && selected.permission && permissions?.has(selected.permission)
           && <SalesField key={organization + screen} db={db} organization={organization} kind={screen as SalesFieldKind} />}
         {screen === 'opportunities' && <><h1>{title}</h1><OpportunityList key={organization} db={db} organization={organization} /></>}
         {screen === 'leads' && current && permissions?.has('lead.read') && <LeadWorkspace
           key={organization+initialName+initialView} db={db} organization={organization} membership={current.id} canEditOwn={permissions.has('lead.contact')} canConvertOwn={permissions.has('lead.convert')} metrics={consoleMetrics} metricsError={summaryError} refreshMetrics={refreshSummary} notificationsOpen={notificationOpen} closeNotifications={()=>setNotificationOpen(false)} initialName={initialName} initialView={initialView} />}
-        {(screen === 'accounts' || screen === 'distributors' || screen === 'contact') && <CustomerWorkspace
-          key={organization+screen+initialName} db={db} organization={organization}
-          initialName={initialName} mode={screen==='contact'?'contacts':screen} openLead={reference=>go('leads',reference)}/>}
+        {screen==='accounts'&&permissions&&<section aria-label="Customers">
+          <nav className="lead-detail-tabs" aria-label="Customer workspace">
+            {([['accounts','Accounts','account.read'],['site','Sites & Branches','site.read'],['contact','Contacts','contact.read']] as const)
+              .filter(([, , permission])=>permissions.has(permission)).map(([id,label])=>
+                <button key={id} type="button" className="secondary" aria-current={customerTab===id?'page':undefined}
+                  onClick={()=>go(id)}>{label}</button>)}
+          </nav>
+          {(customerTab==='site'||!permissions.has('account.read')&&!permissions.has('contact.read'))&&permissions.has('site.read') ?
+            <SalesField key={organization+'site'} db={db} organization={organization} kind="site"/>
+          : customerTab==='contact'&&permissions.has('contact.read')||!permissions.has('account.read') ?
+            <CustomerWorkspace key={organization+'contact'+initialName} db={db} organization={organization} initialName={initialName}
+              mode="contacts" openLead={reference=>go('leads',reference)}/>
+          : <CustomerWorkspace key={organization+initialName} db={db} organization={organization} initialName={initialName} mode="accounts"
+              canAssign={permissions.has('lead.create')&&permissions.has('lead.read')} canManageLeads={permissions.has('lead.manage')}
+              canAddSite={permissions.has('site.create')&&permissions.has('site.read')}
+              membership={current?.id} openLead={reference=>go('leads',reference)}/>}
+        </section>}
         </>}
       </main>
     </div>

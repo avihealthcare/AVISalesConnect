@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
 import { AviIcon } from './AviIcon';
+import {downloadFile,downloadWorkbook} from './spreadsheets';
 import { LeadImport } from './LeadImport';
 import { LeadDialog, LeadEditor } from './LeadEditor';
 import { VisitingCardScanner } from './VisitingCardScanner';
@@ -36,7 +37,7 @@ function getPreferences(key:string):ViewPreferences {
 
 type ExportFormat = 'csv' | 'excel';
 
-function downloadReport(records: LeadRow[], format: ExportFormat, workspace: Workspace) {
+async function downloadReport(records: LeadRow[], format: ExportFormat, workspace: Workspace) {
   const columns = ['Lead number','Hospital or organisation','City','State','Source','Contact person','Designation','Mobile','Email','Products','Salesperson',
     'Territory','Expected value (INR)','Stage','Priority','Received','Follow-up','First response overdue'];
   const rows = [columns,...records.map(row => [row.number,row.customer,row.city,row.state,label(workspace,'source',row.source),row.contact,row.designation,
@@ -46,19 +47,8 @@ function downloadReport(records: LeadRow[], format: ExportFormat, workspace: Wor
     const text = value ?? '';
     return '"' + (/^[\x00-\x20]*[=+\-@]|^[\t\r\n]/.test(text) ? "'" : '') + text.replaceAll('"','""') + '"';
   };
-  const xml = (value: string | null) => (value ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g,'')
-    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
-  const content = format==='csv' ? '\uFEFF'+rows.map(row => row.map(csv).join(',')).join('\r\n')
-    : '<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>'+
-      '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Leads"><Table>'+
-      rows.map(row => '<Row>'+row.map(cell=>'<Cell><Data ss:Type="String">'+xml(cell)+'</Data></Cell>').join('')+'</Row>').join('')+
-      '</Table></Worksheet></Workbook>';
-  const url=URL.createObjectURL(new Blob([content],{type:format==='csv'?'text/csv;charset=utf-8':'application/vnd.ms-excel'}));
-  const anchor=document.createElement('a');
-  anchor.href=url;
-  anchor.download=format==='csv'?'salesconnect-leads.csv':'salesconnect-leads.xml';
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url),1000);
+  if (format==='excel') await downloadWorkbook(rows,'Leads','salesconnect-leads.xlsx');
+  else downloadFile('\uFEFF'+rows.map(row=>row.map(csv).join(',')).join('\r\n'),'text/csv;charset=utf-8','salesconnect-leads.csv');
 }
 
 export function LeadWorkspace({ db, organization, membership, canEditOwn, canConvertOwn, metrics, metricsError, refreshMetrics, notificationsOpen, closeNotifications, initialName, initialView }: {
@@ -71,7 +61,8 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
   const usePinned=initialView==='all'&&!initialName;
   const initialFilters=usePinned?pinned?.filters:undefined;
   const [activeSaved,setActiveSaved]=useState(usePinned?pinned?.id ?? '':'');
-  const [search, setSearch]=useState(initialName);
+  const directLead=/^[0-9a-f-]{36}$/i.test(initialName)?initialName:undefined;
+  const [search, setSearch]=useState(directLead?'':initialName);
   const [view, setView]=useState(initialFilters?.view ?? initialView);
   const [source,setSource]=useState(initialFilters?.source ?? '');
   const [stage,setStage]=useState(initialFilters?.stage ?? '');
@@ -87,13 +78,13 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
   const [startCall,setStartCall]=useState(false);
   const [movingCard,setMovingCard]=useState(false);
   const [page,setPage]=useState(0);
-  const [selected,setSelected]=useState<LeadRow[]>([]);
+  const [selected,setSelected]=useState<Pick<LeadRow,'id'|'version'>[]>([]);
   const [listing,setListing]=useState<Workspace>();
   const [detail,setDetail]=useState<LeadDetail>();
-  const [leadId,openLead]=useState<string>();
+  const [leadId,openLead]=useState<string|undefined>(directLead);
   const [tab,setTab]=useState('Overview');
   const createMenu = useRef<HTMLDetailsElement>(null);
-  const [dialog,setDialog]=useState<'create'|'scan'|'edit'|'stage'|'assignment'|'save-view'|'import'|'demo'>();
+  const [dialog,setDialog]=useState<'create'|'scan'|'edit'|'stage'|'assignment'|'archive'|'save-view'|'import'|'demo'>();
   const [settingsOpen,setSettingsOpen]=useState(false);
   const fileMenu=useRef<HTMLDetailsElement>(null);
   const viewsMenu=useRef<HTMLDetailsElement>(null);
@@ -132,9 +123,9 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
     setDetailError('');
     void db.rpc('read_lead_management',{p_org:organization,p_id:leadId}).then(result => {
       if (!current) return;
-      if (result.error) setDetailError(result.error.code==='PT404'?'This lead is no longer available to you.':'Unable to load this lead.');
+      if (result.error) setDetailError(result.error.code==='PT404'?'You do not have permission to view this lead, or it is no longer available.':'Unable to load this lead.');
       else setDetail(result.data as unknown as LeadDetail);
-    },() => { if (current) setDetailError('Unable to load this lead.'); });
+    },() => { if (current) setDetailError('You do not have permission to view this lead, or it is no longer available.'); });
     return () => { current=false; };
   },[db,organization,leadId,revision]);
 
@@ -243,7 +234,7 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
     try {
       const result=await command('export',{query:{...query,offset:0},format}) as {rows:LeadRow[];total:number};
       if (result.rows.length<result.total) throw new Error('Apply additional filters to export up to 5,000 leads.');
-      downloadReport(result.rows,format,listing);
+      await downloadReport(result.rows,format,listing);
       announce(`${result.rows.length} lead records exported.`);
     } catch (failure) { setError(failure instanceof Error?failure.message:commandError(null)); }
     finally { pending.current=false;setBusy(false); }
@@ -292,7 +283,7 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
           <div>
             {canImport&&<button className="secondary" type="button" onClick={()=>{
               if(fileMenu.current) fileMenu.current.open=false;setDialog('import');
-            }}>Import leads from CSV</button>}
+            }}>Import leads from CSV or Excel</button>}
             {listing?.can_export&&(['csv','excel'] as const).map(format=><button key={format} type="button" className="secondary"
               disabled={busy||loading||!!listError} onClick={()=>{if(fileMenu.current) fileMenu.current.open=false;void exportRows(format);}}>
               {format==='csv'?'Export CSV':'Export Excel'}</button>)}
@@ -371,7 +362,7 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
               filter(setTerritory,value.startsWith('territory:')?value.slice(10):'');setCity(value.startsWith('city:')?value.slice(5):'');
             }} options={[...(listing?.territories??[]).map(item=>['territory:'+item.id,item.name]),
               ...(metrics?.cities??[]).map(item=>['city:'+item,item])]} />
-            <FilterPill label="Owner" value={owner} change={value=>filter(setOwner,value)}
+            <FilterPill label="Assigned Rep" value={owner} change={value=>filter(setOwner,value)}
               options={(listing?.staff??[]).map(item=>[item.id,item.name])}/>
             <button className="secondary avi-with-icon" type="button" aria-expanded={filtersOpen} aria-controls="avi-lead-filter-options"
               onClick={()=>setFiltersOpen(!filtersOpen)}><AviIcon name="filter"/>Filters</button>
@@ -417,7 +408,7 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
         </div>}
       </section>
     </>}
-    {dialog==='import'&&canImport&&<LeadDialog title="Import leads from CSV" onClose={clearInFlight}>
+    {dialog==='import'&&canImport&&<LeadDialog title="Import leads from CSV or Excel" onClose={clearInFlight}>
       <LeadImport db={db} organization={organization} onSaved={()=>{setPage(0);refresh(value=>value+1);}} />
     </LeadDialog>}
     {dialog==='demo'&&activeDetail?.can_edit&&<LeadDialog title="Schedule Demo" onClose={clearInFlight}>
@@ -449,6 +440,19 @@ export function LeadWorkspace({ db, organization, membership, canEditOwn, canCon
         {error&&<p role="alert" className="error">{error}</p>}
         <div className="lead-form-actions"><button className="secondary" type="button" onClick={clearInFlight}>Cancel</button><button>Save View</button></div>
       </form></LeadDialog>}
+    {activeDetail&&listing?.can_manage&&!dialog&&<div className="lead-actions">
+      <button type="button" className="secondary" onClick={()=>{setSelected([{id:activeDetail.data.id,version:activeDetail.data.row_version}]);setDialog('assignment');}}>Reassign Lead</button>
+      <button type="button" className="secondary" onClick={()=>setDialog('archive')}>Delete Lead</button>
+    </div>}
+    {dialog==='archive'&&listing?.can_manage&&activeDetail&&<LeadDialog title="Delete Lead" onClose={clearInFlight}>
+      <div className="lead-form"><p>Remove {activeDetail.number} from the pipeline? Its history will be retained.</p>
+        {error&&<p className="error" role="alert">{error}</p>}
+        <div className="lead-form-actions"><button type="button" className="secondary" onClick={clearInFlight}>Cancel</button>
+          <button disabled={busy} onClick={()=>void mutate('archive',{id:activeDetail.data.id}).then(success=>{
+            if(success){setDialog(undefined);openLead(undefined);}
+          })}>Delete Lead</button></div>
+      </div>
+    </LeadDialog>}
     {dialog==='assignment'&&listing && <LeadDialog title="Assign Leads" onClose={clearInFlight}>
       <form className="lead-form" onSubmit={assign}>
         <p>{selected.length} selected {selected.length===1?'lead':'leads'}</p>
@@ -512,7 +516,7 @@ function LeadSkeleton({selectable}:{selectable:boolean}) {
   </div>;
 }
 function LeadTable({ listing, selected, toggle, toggleAll, open, editable, quick }: {
-  listing:Workspace;selected:LeadRow[];toggle:(row:LeadRow)=>void;toggleAll:()=>void;open:(id:string)=>void;editable:(row:LeadRow)=>boolean;quick:(row:LeadRow,action:QuickAction)=>void;
+  listing:Workspace;selected:Pick<LeadRow,'id'|'version'>[];toggle:(row:LeadRow)=>void;toggleAll:()=>void;open:(id:string)=>void;editable:(row:LeadRow)=>boolean;quick:(row:LeadRow,action:QuickAction)=>void;
 }) {
   return <div className="table-scroll avi-data-table"><table className="lead-table">
     <thead><tr>

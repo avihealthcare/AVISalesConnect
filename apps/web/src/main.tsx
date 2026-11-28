@@ -4,6 +4,7 @@ import { createClient, type Session, type SupabaseClient } from '@supabase/supab
 import type { Database } from '../../../packages/domain/database.types';
 import '@fontsource-variable/inter';
 import './style.css';
+import {userManagementEnabled} from './workspaceFeatures';
 const IntakeWorkspace = lazy(async () => ({ default: (await import('./IntakeWorkspace')).IntakeWorkspace }));
 
 type Membership = { id: string; organization_id: string; organizations: { name: string } | null };
@@ -40,6 +41,12 @@ function App() {
     if (!current) { setPage('login'); return; }
     setPage('loading');
     try {
+      if(userManagementEnabled){
+        const setup=await client.rpc('workspace_password_required');
+        if(checkId!==accessCheck.current)return;
+        if(setup.error&&setup.error.code!=='PGRST202')throw setup.error;
+        if(setup.data){passwordSetup.current=true;setPage('new-password');return;}
+      }
       const { data: membershipData, error: membershipError } = await client.from('memberships').select('id, organization_id, organizations(name)').eq('status', 'Active');
       if (checkId !== accessCheck.current) return;
       if (membershipError) throw membershipError;
@@ -108,6 +115,7 @@ function App() {
   }
   async function updatePassword(e: React.FormEvent) {
     e.preventDefault(); if (!client || busy) return;
+    if(newPassword.length<8){setError('Use at least 8 characters.');return;}
     if (newPassword !== confirmPassword) { setError('Passwords do not match.'); return; }
     setBusy(true); setError('');
     const result = await client.auth.updateUser({ password: newPassword });
@@ -139,7 +147,7 @@ function App() {
       <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button></form><button type="button" className="link" onClick={() => { setError(''); setPage('recover'); }}>Forgot password?</button></>}
     {page === 'recover' && <><h2>Reset password</h2><p>Enter your account email and we’ll send a recovery link if the account is eligible.</p><form onSubmit={requestRecovery}><label htmlFor="recovery-email">Email</label><input id="recovery-email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required /><button disabled={busy}>{busy ? 'Sending…' : 'Send recovery link'}</button></form><button type="button" className="link" onClick={() => { setError(''); setPage('login'); }}>Back to sign in</button></>}
     {page === 'recovery-sent' && <><h2>Check your email</h2><p>If the account is eligible, a recovery link will be sent. Check your inbox and spam folder.</p><button onClick={() => setPage('login')}>Back to sign in</button></>}
-    {page === 'new-password' && <><h2>{invitationRedirect ? 'Choose a password' : 'Choose a new password'}</h2><form onSubmit={updatePassword}><label htmlFor="new-password">New password</label><input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} required /><label htmlFor="confirm-password">Confirm password</label><input id="confirm-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required /><button disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button></form></>}
+    {page === 'new-password' && <><h2>{invitationRedirect ? 'Choose a password' : 'Choose a new password'}</h2><form onSubmit={updatePassword}><label htmlFor="new-password">New password</label><input id="new-password" type="password" autoComplete="new-password" minLength={8} value={newPassword} onChange={e => setNewPassword(e.target.value)} required /><label htmlFor="confirm-password">Confirm password</label><input id="confirm-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required /><button disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button></form></>}
     {page === 'no-access' && <><h2>Access unavailable</h2><p>No active organization membership is available for this account. Contact your administrator.</p><button onClick={signOut} disabled={busy}>Sign out</button></>}
     {page === 'error' && <><h2>Access check unavailable</h2><p>We couldn’t confirm your access. Try again when the connection is available.</p>{session && <button onClick={signOut} disabled={busy}>Sign out</button>}{!session && client && <button onClick={() => void verifyAccess(null)}>Back to sign in</button>}</>}
     {error && <p role="alert" className="error">{error}</p>}

@@ -31,8 +31,8 @@ test('scanned leads support review, duplicate linking, batch capture and manual 
     if (info.project.name==='phone') await page.getByRole('button',{name:'Menu',exact:true}).click();
     await page.getByRole('navigation',{name:'SalesConnect'}).getByRole('button',{name,exact:true}).click();
   }
-  await open('Hospitals and Customers');
-  await page.getByRole('button',{name:'Add a customer',exact:true}).click();
+  await open('Customers');
+  await page.getByRole('button',{name:'Add Customer',exact:true}).click();
   await page.getByLabel('Customer name',{exact:true}).fill('Synthetic Scan Hospital');
   await page.getByRole('button',{name:'Save customer',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Synthetic Scan Hospital',exact:true})).toBeVisible();

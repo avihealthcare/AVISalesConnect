@@ -24,8 +24,8 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
     await page.getByRole('navigation', { name: 'SalesConnect' }).getByRole('button', { name, exact: true }).click();
   }
 
-  await open('Hospitals and Customers');
-  await page.getByRole('button',{name:'Add a customer',exact:true}).click();
+  await open('Customers');
+  await page.getByRole('button',{name:'Add Customer',exact:true}).click();
   await page.getByLabel('Customer name', { exact: true }).fill('Synthetic Hospital');
   await page.getByLabel('City',{exact:true}).fill('Mumbai');
   await page.getByRole('button', { name: 'Save customer' }).click();
@@ -106,15 +106,15 @@ test('staff signs in by email and saves a linked customer and lead', async ({ pa
     await expect(page.getByRole('region',{name:'Demonstration Requested'}).getByText('Synthetic Inquiry')).toBeVisible();
     await page.getByRole('button',{name:'Table',exact:true}).click();
     await page.getByText('Import / Export',{exact:true}).click();
-    await page.getByRole('button',{name:'Import leads from CSV',exact:true}).click();
-    await page.getByLabel('CSV file').setInputFiles({
+    await page.getByRole('button',{name:'Import leads from CSV or Excel',exact:true}).click();
+    await page.getByLabel('CSV or Excel file').setInputFiles({
       name: 'synthetic.csv', mimeType: 'text/csv',
       buffer: Buffer.from('prospect_name,received_at,contact_route,requirement_text\r\n' +
         'Synthetic CSV,2026-01-01T10:30:00+05:30,csv@example.invalid,"Two, quoted items"\r\n'),
     });
     await page.getByRole('button', { name: 'Import 1 valid row' }).click();
     await expect(page.getByText('1 CSV row saved or matched to your earlier import.')).toBeVisible();
-    await page.getByRole('dialog',{name:'Import leads from CSV',exact:true}).getByRole('button',{name:'Close dialog'}).click();
+    await page.getByRole('dialog',{name:'Import leads from CSV or Excel',exact:true}).getByRole('button',{name:'Close dialog'}).click();
     await expect(page.getByText('Two, quoted items')).toBeVisible();
     await page.getByRole('button',{name:'Filters',exact:true}).click();
     await page.getByRole('combobox',{name:'Source',exact:true}).selectOption('indiamart');

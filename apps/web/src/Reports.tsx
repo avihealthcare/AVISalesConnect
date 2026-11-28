@@ -15,10 +15,10 @@ function exportCounts(rows: Row[], metric: string) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 }
 
-export function Reports({ db, organization, canReadOpportunities }: {
-  db: SupabaseClient<Database>; organization: string; canReadOpportunities: boolean;
+export function Reports({ db, organization, canReadLeads, canReadOpportunities }: {
+  db: SupabaseClient<Database>; organization: string; canReadLeads:boolean; canReadOpportunities: boolean;
 }) {
-  const [metric, setMetric] = useState<'source' | 'stage'>('source');
+  const [metric, setMetric] = useState<'source' | 'stage'>(()=>canReadLeads?'source':'stage');
   const [period, setPeriod] = useState({ start: '', end: '' });
   const [rows, setRows] = useState<Row[]>();
   const [failed, setFailed] = useState(false);
@@ -30,7 +30,7 @@ export function Reports({ db, organization, canReadOpportunities }: {
     let current = true;
     setRows(undefined);
     setFailed(false);
-    if (!valid || (metric === 'stage' && !canReadOpportunities)) return;
+    if (!valid || (metric === 'stage' && !canReadOpportunities) || (metric==='source'&&!canReadLeads)) return;
     const exact = { count: 'exact' as const, head: true };
     const start = period.start && `${period.start}T00:00:00+05:30`;
     const end = period.end && `${period.end}T23:59:59.999999+05:30`;
@@ -51,7 +51,7 @@ export function Reports({ db, organization, canReadOpportunities }: {
       else setRows(results.map(({ label, count }) => ({ label, total: count ?? 0 })));
     }).catch(() => { if (current) setFailed(true); });
     return () => { current = false; };
-  }, [db, organization, metric, period, valid, canReadOpportunities, revision]);
+  }, [db, organization, metric, period, valid, canReadLeads, canReadOpportunities, revision]);
 
   return <>
     <h1>Reports</h1>
@@ -59,7 +59,7 @@ export function Reports({ db, organization, canReadOpportunities }: {
       <h2>Sales activity</h2>
       <form onSubmit={event => event.preventDefault()}>
         <label>Report<select value={metric} onChange={event => setMetric(event.target.value as 'source' | 'stage')}>
-          <option value="source">Leads by source</option>
+          {canReadLeads&&<option value="source">Leads by source</option>}
           {canReadOpportunities && <option value="stage">Opportunities by stage</option>}
         </select></label>
         <label>From date (IST)<input type="date" value={period.start} onChange={event => setPeriod({ ...period,start:event.target.value })} /></label>

@@ -24,9 +24,9 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await page.getByRole('button', { name: 'Administration' }).click();
-  await expect(page.getByRole('heading', { name: 'Staff administration' })).toBeVisible();
-  await expect(page.getByRole('region',{name:'Staff administration'}).getByText('Synthetic administrator', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^(User Management|Administration)$/ }).click();
+  await expect(page.getByRole('heading',{name:/^(User Management|Staff administration)$/i})).toBeVisible();
+  await expect(page.locator('#workspace-content').getByText(/^Synthetic administrator(?: \(you\))?$/).first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Deactivate access' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Add expense rule' }).click();
@@ -45,20 +45,20 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await expect(page.getByLabel(/Rate per kilometre/)).toHaveValue('12.50');
 
   const navigation = page.getByRole('navigation', { name: 'SalesConnect' });
-  await navigation.getByRole('button',{name:'Hospitals and Customers',exact:true}).click();
+  await navigation.getByRole('button',{name:'Customers',exact:true}).click();
   async function addBranch(name,address) {
-    await page.getByRole('button',{name:'Add a customer',exact:true}).click();
+    await page.getByRole('button',{name:'Add Customer',exact:true}).click();
     const editor=page.getByRole('dialog',{name:'Add Customer'});
     await editor.getByLabel('Customer name').fill(name);
     await editor.getByLabel('Hospital group or chain').fill('Synthetic network');
     await editor.getByLabel('Complete address').fill(address);
-    await editor.getByLabel('Customer category').selectOption('Neonatal Centre');
+    await editor.getByLabel('Facility category').selectOption('Neonatal Centre');
     await editor.getByLabel('NICU bed capacity').fill('15');
     await editor.getByRole('button',{name:'Save customer',exact:true}).click();
     await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
   }
   await addBranch('Synthetic West Branch','1 Synthetic West Street');
-  await page.getByRole('button',{name:/Back to hospitals/}).click();
+  await page.getByRole('button',{name:/Back to customers/}).click();
   await addBranch('Synthetic East Branch','2 Synthetic East Street');
   await expect(page.getByRole('heading',{name:'Other branches in this group',exact:true})).toBeVisible();
   await page.getByLabel('Department name').fill('NICU');
@@ -66,7 +66,7 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await expect(page.getByRole('listitem').getByText('NICU',{exact:true})).toBeVisible();
   await page.getByRole('navigation',{name:'Customer details',exact:true}).getByRole('button',{name:'Contacts',exact:true}).click();
   await page.getByRole('button',{name:'Add Contact',exact:true}).click();
-  const contactEditor=page.getByRole('dialog',{name:'Add Contact'});
+  const contactEditor=page.getByRole('dialog',{name:'Add Contact',exact:true});
   await contactEditor.getByLabel('Full name').fill('Synthetic Clinician');
   await contactEditor.getByLabel('Designation').fill('Neonatologist');
   await contactEditor.getByLabel('Mobile number').fill('+919000000001');
@@ -112,7 +112,7 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   const download=page.waitForEvent('download');
   await page.getByText('Import / Export',{exact:true}).click();
   await page.getByRole('button',{name:'Export Excel',exact:true}).click();
-  expect((await download).suggestedFilename()).toBe('salesconnect-leads.xml');
+  expect((await download).suggestedFilename()).toBe('salesconnect-leads.xlsx');
 
   await navigation.getByRole('button', { name: 'Products', exact: true }).click();
   await page.getByLabel('Model or product name').fill('Synthetic model');

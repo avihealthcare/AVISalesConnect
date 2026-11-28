@@ -131,10 +131,10 @@ export function LeadForm({ workspace, lead, save, onClose, busy, error, card }: 
             {workspace.territories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select></label>
           {lead ? <label>Assigned salesperson<input value={lead.owner_name ?? 'Unassigned'} readOnly /></label> : <>
-            <label>Assignment<select name="routing" value={routing} onChange={event => setRouting(event.target.value)}>
+            {workspace.can_manage?<label>Assignment<select name="routing" value={routing} onChange={event => setRouting(event.target.value)}>
               <option value="self">Assign to me</option><option value="territory">Route by territory</option>
               {workspace.can_manage && <><option value="manual">Select a salesperson</option><option value="unassigned">Leave unassigned</option></>}
-            </select></label>
+            </select></label>:<label>Assigned salesperson<input value="Me" readOnly /></label>}
             {routing === 'manual' && <label>Assigned salesperson<select name="owner" defaultValue="" required>
               <option value="">Choose a salesperson</option>{workspace.staff.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select></label>}

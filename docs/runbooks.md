@@ -92,3 +92,9 @@ The web build copies the pinned Tesseract worker, WebAssembly core and English r
 The private `lead-cards` bucket retains the exact original images at save time. Keep card files isolated from direct download. Review orphaned uploads through an authorized server process and reconcile their paths against attachment records before cleanup. Downloads require integration with the approved clean-file workflow.
 
 For local verification, serve Edge functions with the loopback app as `AVI_CARD_ALLOWED_ORIGIN`, then set `TEST_LOCAL_CARD_EDGE=yes` when running Playwright. The card test runs real browser OCR on synthetic images, checks that extraction makes no upload or external request, and verifies the original upload after save.
+
+### Customer consolidation and User Management
+
+Apply the unified customer/lead migration, then the User Management migration. Deploy the `admin-users` Edge function with JWT verification and set `AVI_ADMIN_ALLOWED_ORIGIN` if the application uses an origin other than the AVI Netlify pilot. The existing Supabase project secrets supply the service credentials. Keep Auth credentials in the server function and share temporary passwords via the organization’s approved private process.
+
+The first password change activates a newly provisioned membership. Admin password resets temporarily suspend access and invalidate old sessions for that Auth identity. A reset interrupted between Auth and workspace updates can be retried after the three-minute lease. This workflow restricts administrator password reset to single-organization Auth identities and protects self-deactivation and self-demotion. Existing staff handover remains available if work should be reassigned first.

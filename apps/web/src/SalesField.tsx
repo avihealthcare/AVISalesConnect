@@ -9,7 +9,9 @@ const settings: Record<SalesFieldKind, FieldConfig> = {
   site: { title: 'Customer Sites', action: 'Add a site', titleLabel: 'Site name', parent: 'Customer', inputs: [
     { name: 'address', label: 'Address', required: true }, { name: 'pin', label: 'PIN code' }, { name: 'city', label: 'City' },
     { name: 'district', label: 'District' }, { name: 'state', label: 'State' }, { name: 'department', label: 'Department' },
-    { name: 'ownership', label: 'Site type or ownership' },
+    { name: 'ownership', label: 'Ownership' },
+    { name:'site_type',label:'Site type', choices:['Hospital Campus','Clinic Branch','Registered Office','Warehouse / Godown','Service Center'] },
+    { name:'is_primary',label:'Primary site', choices:['true','false'] },
     { name: 'latitude', label: 'Latitude (decimal degrees)' }, { name: 'longitude', label: 'Longitude (decimal degrees)' },
     { name: 'beds', label: 'Total beds', type: 'number' },
     { name: 'icu_beds', label: 'ICU beds', type: 'number' }, { name: 'nicu_beds', label: 'NICU beds', type: 'number' },

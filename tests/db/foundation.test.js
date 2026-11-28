@@ -14,7 +14,7 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
   const db = new PGlite({ extensions: { btree_gist } });
   try {
     await db.exec(`create role anon nologin; create role authenticated nologin; create role service_role nologin; create schema auth;
-      create table auth.users(id uuid primary key);
+      create table auth.users(id uuid primary key,encrypted_password text);
       create table auth.sessions(id uuid primary key, user_id uuid not null, aal text, not_after timestamptz);
       create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid$$;
       create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb, '{}'::jsonb)$$;
@@ -238,7 +238,7 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
       db.query('select public.command_lead_management($1,$2,$3,$4) as result',[o1,action,key,input]).then(result => result.rows[0].result);
     await assert.rejects(leadRead({},null,o2),{code:'42501'});
     const workspace = await leadRead();
-    assert.equal(workspace.catalog.filter(entry => entry.kind==='source').length,16);
+    assert.equal(workspace.catalog.filter(entry => entry.kind==='source').length,17);
     assert.equal(workspace.catalog.filter(entry => entry.kind==='stage').length,16);
     const createInput = { fields:{ customer:'Synthetic lead workflow',source:'indiamart',contact:'Synthetic buyer',
       external_reference:'INQUIRY-001',mobile:'+91 90000 00001',email:'Pilot@Example.invalid',stage:'demo_requested',

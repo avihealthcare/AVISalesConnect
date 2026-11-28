@@ -589,6 +589,13 @@ export type Database = {
         Args: { p_org: string; p_id: string; p_key: string; p_version: number; p_due: string; p_note?: string };
         Returns: Json;
       };
+      workspace_access: { Args: {p_org:string}; Returns: Json };
+      workspace_password_required: { Args: Record<never,never>; Returns: boolean };
+      workspace_user_directory: { Args: {p_org:string}; Returns: Json };
+      assign_customer_leads: { Args: { p_org:string; p_key:string; p_input:Json }; Returns: Json };
+      customer_activities: {Args:{p_org:string;p_id:string};Returns:Json};
+      log_customer_activity: {Args:{p_org:string;p_id:string;p_key:string;p_kind:string;p_summary:string};Returns:undefined};
+      enterprise_customer_directory: { Args: { p_org:string; p_query?:Json }; Returns: Json };
       create_card_lead: { Args: { p_org: string; p_key: string; p_input: Json }; Returns: Json };
       find_card_matches: {
         Args: { p_org: string; p_hospital: string; p_phone: string; p_secondary: string; p_email: string }; Returns: Json;

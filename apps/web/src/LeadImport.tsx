@@ -1,5 +1,6 @@
 import { useState, type ChangeEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {downloadWorkbook,readLeadWorkbook} from './spreadsheets';
 import type { Database } from '../../../packages/domain/database.types';
 
 const fields = ['prospect_name', 'received_at', 'contact_route', 'missing_contact_reason', 'requirement_text'] as const;
@@ -7,7 +8,7 @@ const template = fields.join(',') + '\r\n';
 type LeadInput = Record<typeof fields[number], string | null> & { source: 'CSV' };
 type ImportRow = { number: number; name: string; input: LeadInput; issue?: string; saved?: boolean };
 
-function readCsv(text: string) {
+export function readCsv(text: string) {
   const input = text.replace(/^\uFEFF/, '');
   const rows: string[][] = [];
   let row: string[] = [];
@@ -52,6 +53,7 @@ export function LeadImport({ db, organization, onSaved }: {
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [message, setMessage] = useState('');
   const [invalidFile, setInvalidFile] = useState(false);
+  const [fileLabel,setFileLabel] = useState('CSV');
   const [busy, setBusy] = useState(false);
   const ready = rows.filter(row => !row.issue && !row.saved).length;
 
@@ -63,8 +65,15 @@ export function LeadImport({ db, organization, onSaved }: {
     if (!file) return;
     setBusy(true);
     try {
-      if (file.size > 1024 * 1024) throw new Error('Choose a UTF-8 CSV file under 1 MB.');
-      const [header = [], ...data] = readCsv(new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer()));
+      if (file.size > 1024 * 1024) throw new Error('Choose a CSV, XLS or XLSX file under 1 MB.');
+      const extension = file.name.split('.').at(-1)?.toLowerCase();
+      if (extension!=='csv' && extension!=='xls' && extension!=='xlsx') throw new Error('Choose a CSV, XLS or XLSX file.');
+      setFileLabel(extension.toUpperCase());
+      const bytes = await file.arrayBuffer();
+      const parsed = extension==='csv'
+        ? {data:readCsv(new TextDecoder('utf-8',{fatal:true}).decode(bytes)),formulas:new Set<number>(),firstRow:1}
+        : await readLeadWorkbook(bytes);
+      const [header = [], ...data] = parsed.data;
       const names = header.map(value => value.trim().toLowerCase());
       if (!names.includes('prospect_name') || !names.includes('received_at') || new Set(names).size !== names.length) {
         throw new Error('Use the template headers, including prospect_name and received_at.');
@@ -81,7 +90,8 @@ export function LeadImport({ db, organization, onSaved }: {
           contact_route: read('contact_route'), missing_contact_reason: read('missing_contact_reason'), requirement_text: read('requirement_text'),
         };
         const fingerprint = JSON.stringify(input);
-        const issue = row.length !== names.length ? 'Column count differs from the header.'
+        const issue = parsed.formulas.has(index+1) ? 'Replace formulas with their values.'
+          : row.length !== names.length ? 'Column count differs from the header.'
           : !input.prospect_name || input.prospect_name.length > 200 ? 'Enter a name up to 200 characters.'
           : !timed ? 'Use a past receipt time with an offset, such as 2026-01-01T10:00:00+05:30.'
           : !input.contact_route && !input.missing_contact_reason ? 'Enter contact details or a missing-contact reason.'
@@ -89,13 +99,13 @@ export function LeadImport({ db, organization, onSaved }: {
           : (input.missing_contact_reason?.length ?? 0) > 500 || (input.requirement_text?.length ?? 0) > 10000 ? 'Shorten the notes.'
           : used.has(fingerprint) ? 'Exact repeat in this file.' : undefined;
         if (!issue) used.add(fingerprint);
-        return { number: index + 2, name: input.prospect_name ?? '', input, issue };
-      }).filter((_,index) => data[index].some(cell => cell.trim()));
-      if (!reviewed.length || reviewed.length > 250) throw new Error('Include between 1 and 250 rows per CSV file.');
+        return { number: index + parsed.firstRow + 1, name: input.prospect_name ?? '', input, issue };
+      }).filter((_,index) => parsed.formulas.has(index+1)||data[index].some(cell => cell.trim()));
+      if (!reviewed.length || reviewed.length > 250) throw new Error('Include between 1 and 250 rows per file.');
       setRows(reviewed);
     } catch (error) {
       setInvalidFile(true);
-      setMessage(error instanceof Error ? error.message : 'Unable to preview this CSV.');
+      setMessage(error instanceof Error ? error.message : 'Unable to preview this file.');
     } finally { setBusy(false); }
   }
 
@@ -110,13 +120,13 @@ export function LeadImport({ db, organization, onSaved }: {
           p_org: organization, p_key: await requestKey(row.input), p_kind: 'lead', p_input: row.input,
         });
         if (result.error) {
-          setMessage(`Import paused at CSV row ${row.number}. Review your access or retry the remaining rows.`);
+          setMessage(`Import paused at ${fileLabel} row ${row.number}. Review your access or retry the remaining rows.`);
           return;
         }
         saved += 1;
         setRows(previous => previous.map(item => item.number === row.number ? { ...item, saved: true } : item));
       }
-      setMessage(`${saved} CSV ${saved === 1 ? 'row' : 'rows'} saved or matched to your earlier import.`);
+      setMessage(`${saved} ${fileLabel} ${saved === 1 ? 'row' : 'rows'} saved or matched to your earlier import.`);
     } catch {
       setMessage('The import paused. Retry the remaining rows to resume.');
     } finally {
@@ -126,9 +136,11 @@ export function LeadImport({ db, organization, onSaved }: {
   }
 
   return <div className="lead-form">
-    <p>Upload a UTF-8 file and review its rows before saving. Keep the template headers in any order.</p>
+    <p>Upload a CSV, XLS or XLSX file. For workbooks, use the first sheet. Excel date cells are read as India time (IST).</p>
     <a href={`data:text/csv;charset=utf-8,${encodeURIComponent(template)}`} download="salesconnect-leads-template.csv">Download CSV template</a>
-    <label>CSV file<input type="file" accept=".csv,text/csv" disabled={busy} onChange={preview} /></label>
+    <button className="secondary" type="button" onClick={()=>void downloadWorkbook([[...fields]],'Leads','salesconnect-leads-template.xlsx')
+      .catch(()=>{setInvalidFile(true);setMessage('Unable to download the Excel template. Try again.');})}>Download Excel template</button>
+    <label>CSV or Excel file<input type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busy} onChange={preview} /></label>
     {message && <p role={invalidFile ? 'alert' : 'status'}>{message}</p>}
     {rows.length > 0 && <>
       <div className="table-scroll"><table><thead><tr><th scope="col">Row</th><th scope="col">Lead</th><th scope="col">Review</th></tr></thead>
