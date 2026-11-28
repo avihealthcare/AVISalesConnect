@@ -190,3 +190,7 @@ Leads now previews CSV, XLS and XLSX and writes a native XLSX export. Customers 
 User Management supports synthetic local testing for administrator creation, module permissions, first-login password setup and password resets. A hosted publication check rejected the separate authorization/authentication migration pending explicit production approval. The pilot build leaves new User Management disabled, and the pending database migration and administrator endpoint remain local. Live staff administration continues through the established interface.
 
 The disposable Auth/API/Storage test passed, the migration reset and database security review found no warnings, and browser checks exercised actual Excel import/export, linked customer/site/contact assignment, direct lead denial, temporary password setup, password reset and visiting-card OCR. Hosted User Management still needs approval, database migration, Edge deployment and a signed-in verification before enabling its build flag.
+
+## 2026-11-28 — Approved hosted User Management activation
+
+The user explicitly approved the live role, password setup and session changes. Hosted Supabase applied `20261128063040_pilot_user_management` and activated the `admin-users` Edge endpoint with JWT verification. The Netlify build enables User Management. The synthetic Chrome workflow verifies administrator provisioning, module-scoped access, first-login password setup, resetting a password and direct lead access denial on the disposable stack.

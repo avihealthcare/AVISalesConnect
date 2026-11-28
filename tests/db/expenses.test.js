@@ -15,7 +15,7 @@ test('expense workflow pins effective rules, separates approvals and reconciles 
     await db.exec(`
       create role anon nologin; create role authenticated nologin; create role service_role nologin;
       create schema auth;
-      create table auth.users(id uuid primary key);
+      create table auth.users(id uuid primary key,encrypted_password text);
       create table auth.sessions(id uuid primary key, user_id uuid not null, aal text, not_after timestamptz);
       create function auth.uid() returns uuid language sql stable
         as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
