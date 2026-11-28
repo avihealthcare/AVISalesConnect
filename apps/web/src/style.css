@@ -498,3 +498,48 @@ body { margin:0; }
 .user-module-matrix fieldset { min-width:0; }
 .customer-row-actions { display:grid; grid-template-columns:repeat(2,max-content); gap:4px 8px; }
 .customer-row-actions .link { text-align:left; font-size:11px; }
+
+/* Field Operations uses the same surface and theme tokens as the CRM. */
+.field-console { display: grid; gap: 16px; }
+.field-console .page-heading { margin-bottom: 0; align-items: center; }
+.field-toolbar .avi-data-filters { flex-wrap: wrap; align-items: end; }
+.field-toolbar .avi-data-filters label { display: grid; gap: 4px; font-size: .8rem; color: var(--muted); margin: 0; }
+.field-toolbar .avi-data-filters input, .field-toolbar .avi-data-filters select { min-height: 36px; }
+.field-punch { display: flex; align-items: center; flex-wrap: wrap; gap: 16px 24px; justify-content: space-between; }
+.field-punch p { margin: 8px 0 0; }
+.field-clock { font-size: clamp(1.55rem, 4vw, 2.35rem); font-weight: 700; font-variant-numeric: tabular-nums; }
+.field-month, .field-dsr { padding: 16px; }
+.field-month-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.field-month-grid > strong { padding: 8px 4px; }
+.field-month-day { display: grid; align-content: start; gap: 8px; min-height: 72px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.field-month-day[data-today="true"] { border-color: var(--action); }
+.field-month-day .lead-badge { justify-self: start; white-space: normal; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
+.field-calendar-scroll { overflow-x: auto; }
+.field-calendar { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(144px, 1fr); min-height: 200px; }
+.field-calendar-column { padding: 12px; min-width: 0; }
+.field-calendar-column + .field-calendar-column { border-inline-start: 1px solid var(--line); }
+.field-time-block { display: grid; gap: 4px; padding: 8px; margin-top: 8px; background: var(--page); border-inline-start: 3px solid var(--action); border-radius: 6px; overflow-wrap: anywhere; }
+.field-time-block .lead-actions { flex-wrap: wrap; }
+.field-records { display: grid; list-style: none; padding: 0; margin: 0; }
+.field-record { display: grid; gap: 8px; border-bottom: 1px solid var(--line); padding: 16px; overflow-wrap: anywhere; }
+.field-record:last-child { border-bottom: 0; }
+.field-record h3, .field-record p { margin: 0; }
+.field-history { padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+.field-empty { padding: 16px; color: var(--muted); }
+.field-console button, .field-settings button { margin: 0; }
+.field-entry-actions { flex-wrap: wrap; }
+.field-location, .field-report-picks { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+.field-location p { margin: 0; }
+.field-warning { color: #8b430c; }
+.sales-shell[data-theme="dark"] .field-warning { color: #ffd08b; }
+.field-choices { display: grid; gap: 4px; }
+.field-report-picks .field-choices { overflow-y: auto; max-height: 180px; }
+.field-choices input { width: auto; }
+.field-settings { margin-top: 24px; }
+@media (max-width: 620px) {
+  .field-console .page-heading { align-items: start; flex-wrap: wrap; }
+  .field-month, .field-dsr, .field-record { padding: 8px; }
+  .field-month-day { min-height: 64px; padding: 4px; font-size: .75rem; }
+  .field-month-day .lead-badge { padding: 2px; line-height: 1.25; font-size: .62rem; }
+  .field-punch { gap: 12px; }
+}

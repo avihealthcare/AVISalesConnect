@@ -1,3 +1,4 @@
+import { FieldLinkedRecords } from './FieldLinkedRecords';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
@@ -66,6 +67,7 @@ export function StageChange({ workspace, lead, initialStage, onClose, save, busy
       <label>{reopen ? 'Reopening reason' : 'Reason'}<textarea name="reason" maxLength={1000} required={reopen || closed} /></label>
       <label>Next action<input name="next_action" maxLength={500} defaultValue={lead.data.next_action ?? ''} /></label>
       <label>Next follow-up date (device time)<input name="follow_up" type="datetime-local" /></label>
+      {lead.data.next_action_due_at&&<label>Reason if rescheduling<textarea name="reschedule_reason" maxLength={1000}/></label>}
       {error && <p role="alert" className="error">{error}</p>}
       <div className="lead-form-actions"><button className="secondary" type="button" onClick={onClose}>Cancel</button>
         <button disabled={busy}>{reopen ? 'Reopen Lead' : 'Update Stage'}</button></div>
@@ -258,7 +260,8 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
         events={lead.timeline.filter(event => ['Inquiry created','Stage change','Reopened','Assignment','Merge','Staff handover','Lead converted'].includes(event.kind))} /></>}
       {relatedTypes[tab] && <><h2>{tab}</h2>
         {tab === 'Follow-ups' && <Facts rows={ [['Next action',data.next_action],['Next follow-up',dateTime(data.next_action_due_at)]] } />}
-        {lead.related.some(item => item.kind === relatedTypes[tab]) && <ul className="records">{lead.related.filter(item => item.kind===relatedTypes[tab]).map(item =>
+        {(tab==='Follow-ups'||tab==='Field Visits')&&<FieldLinkedRecords db={db} org={organization} id={data.id} linkedBy="lead" kind={tab==='Follow-ups'?'task':'visit'}/>}
+        {tab!=='Follow-ups'&&tab!=='Field Visits'&&lead.related.some(item => item.kind === relatedTypes[tab]) && <ul className="records">{lead.related.filter(item => item.kind===relatedTypes[tab]).map(item =>
           <li key={item.id}><strong>{item.title}</strong><p>{item.status} · {dateTime(item.planned_at ?? item.created_at)}{item.reference && ` · ${item.reference}`}</p></li>)}</ul>}
         <Timeline workspace={workspace} events={lead.timeline.filter(event => relatedEvents[tab].includes(event.kind))} />
       </>}
@@ -273,10 +276,11 @@ export function LeadDetailView({ db, organization, lead, workspace, tab, setTab,
         event.preventDefault();
         const fields=readFields(event.currentTarget);
         void mutate('stage',{id:data.id,version:data.row_version,stage:data.sales_stage,next_action:fields.next_action,
-          follow_up:readTime(fields.follow_up)}).then(success=>{if(success){setNextAction(false);setTab('Follow-ups');}});
+          follow_up:readTime(fields.follow_up),reschedule_reason:fields.reason}).then(success=>{if(success){setNextAction(false);setTab('Follow-ups');}});
       }}>
         <label>Next action<input name="next_action" required maxLength={500} defaultValue={data.next_action??''} /></label>
         <label>Next follow-up date (device time)<input type="datetime-local" name="follow_up" required defaultValue={inputTime(data.next_action_due_at)} /></label>
+        {data.next_action_due_at&&<label>Reschedule reason<textarea name="reason" minLength={3} maxLength={1000} required/></label>}
         {error&&<p role="alert" className="error">{error}</p>}
         <div className="lead-form-actions"><button className="secondary" type="button" onClick={()=>setNextAction(false)}>Cancel</button>
           <button disabled={busy}>Save Follow-up</button></div>

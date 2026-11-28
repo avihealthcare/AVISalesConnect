@@ -122,12 +122,17 @@ test('invited pilot admin sets a password and reaches administration', async ({ 
   await expect(page.getByText('Synthetic model', { exact: true })).toBeVisible();
 
   await navigation.getByRole('button', { name: 'Attendance', exact: true }).click();
-  await page.getByLabel('Location exception reason').fill('Synthetic browser has no GPS hardware');
-  await page.getByRole('button', { name: 'Check in', exact: true }).click();
-  await page.getByRole('button', { name: 'Check out', exact: true }).click();
-  await page.getByLabel('Location exception reason').fill('Synthetic browser has no GPS hardware');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('Pending Review', { exact: true })).toBeVisible();
+  await page.getByRole('button',{name:'Start Working Day',exact:true}).click();
+  const punch=page.getByRole('dialog');
+  await punch.getByLabel('Log Location Exception').check();
+  await punch.getByLabel('Location exception reason').fill('Synthetic browser has no GPS hardware');
+  await punch.getByRole('button',{name:'Start Working Day',exact:true}).click();
+  await page.getByRole('button',{name:'End Working Day',exact:true}).click();
+  await punch.getByLabel('Log Location Exception').check();
+  await punch.getByLabel('Location exception reason').fill('Synthetic browser has no GPS hardware');
+  await punch.getByRole('button',{name:'End Working Day',exact:true}).click();
+  await page.getByRole('button',{name:'Attendance Log',exact:true}).click();
+  await expect(page.getByText('Pending Review',{exact:true})).toBeVisible();
 
   await navigation.getByRole('button', { name: 'Tenders', exact: true }).click();
   await page.getByRole('button', { name: 'Register tender', exact: true }).click();

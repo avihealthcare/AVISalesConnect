@@ -192,6 +192,7 @@ export function LeadForm({ workspace, lead, save, onClose, busy, error, card }: 
         <label>Expected order value (INR)<input name="value" type="number" min="0" step=".01" defaultValue={data?.expected_value ?? ''} /></label>
         <label>Expected purchase date<input name="purchase_on" type="date" defaultValue={data?.expected_purchase_on ?? ''} /></label>
         <label>Next follow-up date (device time)<input name="follow_up" type="datetime-local" defaultValue={inputTime(data?.next_action_due_at)} /></label>
+        {data?.next_action_due_at&&<label>Reason if rescheduling<textarea name="reschedule_reason" maxLength={1000}/></label>}
         <label>Next action<input name="next_action" defaultValue={data?.next_action ?? ''} maxLength={500} /></label>
         <label>Competitor<input name="competitor" defaultValue={data?.competitor ?? ''} maxLength={200} /></label>
         <label className="lead-span">Lead description<textarea name="description" rows={3} defaultValue={data?.description ?? ''} maxLength={10000} /></label>

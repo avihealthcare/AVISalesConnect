@@ -1,3 +1,5 @@
+import { ProvisionalCustomer } from './ProvisionalCustomer';
+import { FieldLinkedRecords } from './FieldLinkedRecords';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
@@ -171,7 +173,7 @@ export function CustomerWorkspace({ db, organization, mode, initialName='', open
         open={open} edit={()=>edit('edit')} addContact={listing?.can_contact?()=>addFor('contact_create',customer):undefined}
         addSite={canAddSite?()=>addFor('site',customer):undefined} assign={canAssign?()=>setAssigning([customer]):undefined}
         addDepartment={async input=>save('department',input)} saveOverview={input=>save('edit',input)}
-        staff={listing?.manage?listing.staff:[]} busy={busy} openLead={openLead}/>
+        staff={listing?.manage?listing.staff:[]} busy={busy} openLead={openLead} refresh={()=>refresh(value=>value+1)}/>
       : contact ? <ContactDetail db={db} organization={organization} record={contact} tab={tab} setTab={setTab}
         openCustomer={id=>open('accounts',id)} onEdit={()=>edit('contact_edit')} />
       : destination ? <p role="status">Loading record…</p>
@@ -293,6 +295,8 @@ function CustomerSiteDialog({db,organization,customer,close,saved}:{
         <label className="lead-span">Address<input name="address" required maxLength={500}/></label>
         <label>City<input name="city" maxLength={120}/></label><label>State<input name="state" maxLength={120}/></label>
         <label>PIN code<input name="pin" maxLength={16}/></label>
+        <label>Site latitude<input name="latitude" type="number" min={-90} max={90} step="any"/></label>
+        <label>Site longitude<input name="longitude" type="number" min={-180} max={180} step="any"/></label>
         {customerSegment(customer)==='Healthcare Institution'&&<label>Bed capacity<input name="beds" type="number" min="0" max="999999"/></label>}
         <label>Primary site<select name="is_primary"><option value="false">No</option><option value="true">Yes</option></select></label>
       </div>
@@ -311,10 +315,10 @@ function ContactTable({ contacts, open, loading = false }: { contacts:Contact[];
   </tr>)}</tbody></table></div>;
 }
 
-function CustomerDetail({ db, organization, record, tab, setTab, open, edit, addContact, addSite, assign, addDepartment, saveOverview, staff, busy, openLead }: {
+function CustomerDetail({ db, organization, record, tab, setTab, open, edit, addContact, addSite, assign, addDepartment, saveOverview, staff, busy, openLead, refresh }: {
   db:SupabaseClient<Database>;organization:string;record:CustomerInfo;tab:string;setTab:(tab:string)=>void;
   open:(kind:Destination['kind'],id:string)=>void;edit:()=>void;addContact?:()=>void;addSite?:()=>void;assign?:()=>void;
-  addDepartment:(input:Json)=>Promise<boolean>;saveOverview:(input:Json)=>Promise<boolean>;staff:Directory['staff'];busy:boolean;openLead:(reference:string)=>void;
+  addDepartment:(input:Json)=>Promise<boolean>;saveOverview:(input:Json)=>Promise<boolean>;staff:Directory['staff'];busy:boolean;openLead:(reference:string)=>void;refresh:()=>void;
 }) {
   const data=record.details;
   const phone=telephone(data.phone);
@@ -343,6 +347,7 @@ function CustomerDetail({ db, organization, record, tab, setTab, open, edit, add
     <div className="page-heading"><div><p className="lead-number">{record.number}</p><h1>{record.name}</h1>
       <div className="lead-tags"><span className="lead-badge" data-tone="active">{record.category}</span>
         <span className="lead-badge" data-tone={record.status==='Active'?'won':'hold'}>{record.status}</span>
+        {data.is_provisional==='true'&&<span className="lead-badge" data-tone="hold">Provisional customer</span>}
         {record.group&&<span>{record.group}</span>}{record.owner_name&&<span>{record.owner_name}</span>}</div></div>
       <div className="lead-actions">{record.can_edit&&<button className="secondary" type="button" onClick={edit}>Edit Customer</button>}
         {assign&&<button className="avi-primary" type="button" onClick={assign}>Assign as Lead</button>}</div></div>
@@ -364,6 +369,7 @@ function CustomerDetail({ db, organization, record, tab, setTab, open, edit, add
       aria-current={tab===name?'page':undefined} onClick={()=>setTab(name)}>{name}</button>)}</nav>
     {tab==='Overview'&&<>
       <h2>Overview</h2>
+      {data.is_provisional==='true'&&<ProvisionalCustomer key={record.id} db={db} org={organization} id={record.id} onVerified={refresh}/>}
       <Facts entries={ [
         ['Hospital group or chain',record.group],['Address',data.address],['City',data.city],['District',data.district],['State',data.state],
         ['PIN code',data.pin],['Country',data.country],['Latitude',data.latitude],['Longitude',data.longitude],
@@ -373,6 +379,7 @@ function CustomerDetail({ db, organization, record, tab, setTab, open, edit, add
       ] }/>
       <div className="customer-links">{phone&&<a href={'tel:'+phone}>Call {phone}</a>}
         {data.website&&/^https?:\/\//i.test(data.website)&&<a href={data.website} target="_blank" rel="noopener noreferrer">Website</a>}</div>
+      <FieldLinkedRecords db={db} org={organization} id={record.id} linkedBy="account" kind="task"/>
       {data.notes&&<section className="lead-section"><h3>Notes</h3><p className="requirement">{data.notes}</p></section>}
       <section className="lead-section"><h3>Departments</h3>
         {record.departments.length?<ul>{record.departments.map(department=><li key={department.key}>{department.name}</li>)}</ul>:<p className="muted">No departments recorded.</p>}
@@ -396,7 +403,8 @@ function CustomerDetail({ db, organization, record, tab, setTab, open, edit, add
     </>}
     {relation.has(tab)&&<><h2>{tab}</h2>
       {tab==='Payments'&&<p className="muted">Recorded receipt references from linked sales records. Amounts reflect the recorded reference.</p>}
-      <RelatedRows items={related}/></>}
+      {tab==='Field Visits'?<FieldLinkedRecords db={db} org={organization} id={record.id} linkedBy="account" kind="visit"/>
+        :<RelatedRows items={related}/>}</>}
     {tab==='Documents'&&<><h2>Documents</h2><Documents db={db} organization={organization} record={record}/></>}
     {tab==='Activity Timeline'&&<><h2>Activity Timeline</h2>{events.length?<ul className="lead-timeline">{events.map((event,index)=><li key={index}>
       <div><strong>{event.title}</strong><span>{dateTime(event.created_at)}</span></div>
@@ -499,6 +507,7 @@ function ContactDetail({ db, organization, record, tab, setTab, openCustomer, on
       aria-current={tab===name?'page':undefined} onClick={()=>setTab(name)}>{name}</button>)}</nav>
     {tab==='Documents'?<><h2>Visiting card and documents</h2><Documents db={db} organization={organization} record={record}/></>
       : <><h2>Overview</h2>
+
         <Facts entries={ [
           ['Mobile number',record.details.phone],['WhatsApp number',record.details.whatsapp],['Email address',record.details.email],
           ['Office telephone',record.details.office_phone],['Contact category',record.details.category],

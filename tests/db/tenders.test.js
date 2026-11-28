@@ -45,7 +45,7 @@ test('tender command flow isolates records, pins decisions and freezes a two-lot
     }
     const role = randomUUID();
     await db.query("insert into public.roles (id,organization_id,code,name) values ($1,$2,'tender_test','Synthetic tender owner')", [role, org]);
-    await db.query("insert into public.role_permissions values ($1,$2,'tender.edit'),($1,$2,'tender.read')", [org, role]);
+    await db.query("insert into public.role_permissions values ($1,$2,'tender.edit'),($1,$2,'tender.read'),($1,$2,'task.read')", [org, role]);
     await db.query("insert into public.member_roles (organization_id,membership_id,role_id,effective_from) values ($1,$2,$3,now())", [org, owner.member, role]);
 
     async function as(actor) {
@@ -69,6 +69,8 @@ test('tender command flow isolates records, pins decisions and freezes a two-lot
     const { id } = registration;
     let version = registration.version;
     assert.deepEqual(await command('register', register, null, null, key), registration);
+    const tasks=await db.query("select public.field_workspace($1,'task','{}') as workspace",[org]);
+    assert.equal(tasks.rows[0].workspace.rows.filter(task=>task.parent_id===id&&task.details.task_type==='Tender Submission').length,1);
     await assert.rejects(command('register', { ...register, reference: 'DIFFERENT' }, null, null, key), /already used/i);
     await assert.rejects(command('register', { ...register, portal: 'synthetic portal', reference: 't-001' }), /duplicate key/i);
     await assert.rejects(command('register', { ...register, deadline: '2030-01-01T20:00+05:30', reference: 'T-002' }), /offset does not match/i);

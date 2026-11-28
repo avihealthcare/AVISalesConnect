@@ -226,12 +226,45 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     const fetched = await db.query("select public.read_sales_field($1,'product') as data",[o1]);
     assert.equal(fetched.rows[0].data.rows[0].title,'Updated synthetic model');
     await assert.rejects(db.query("select public.read_sales_field($1,'product')",[o2]), {code:'42501'});
-    const attendance = {title:'Attendance', details:{exception:'Synthetic GPS exception'}};
-    const session = await fieldWrite('attendance_session','create','94000000-0000-0000-0000-000000000005',attendance);
-    await assert.rejects(fieldWrite('attendance_session','create','94000000-0000-0000-0000-000000000006',attendance), {code:'23505'});
-    await fieldWrite('attendance_session','complete','94000000-0000-0000-0000-000000000007',{...attendance,...session});
+    const fieldAction = (kind,action,data,key=crypto.randomUUID(),org=o1) => db.query(
+      'select public.field_command($1,$2,$3,$4,$5) as record',[org,kind,action,key,data]).then(result=>result.rows[0].record);
+    const fieldRead = (kind,query={},org=o1) => db.query(
+      'select public.field_workspace($1,$2,$3) as record',[org,kind,query]).then(result=>result.rows[0].record);
+    const attendance = {work_mode:'Field Work',exception:'Synthetic GPS exception'};
+    await assert.rejects(fieldWrite('attendance_session','create',crypto.randomUUID(),attendance),{code:'22023'});
+    await assert.rejects(fieldAction('attendance_session','start',{work_mode:'Field Work'}),/exception reason/i);
+    const punchKey=crypto.randomUUID();
+    const punch=await fieldAction('attendance_session','start',attendance,punchKey);
+    assert.deepEqual(await fieldAction('attendance_session','start',attendance,punchKey),punch);
+    await assert.rejects(fieldAction('attendance_session','start',attendance),{code:'PT409'});
+    await fieldAction('attendance_session','finish',{...punch,version:1,gps:{lat:19.1,lon:72.8,accuracy:12,captured_at:new Date().toISOString()}});
+    const row=(await fieldRead('attendance_session')).rows[0];
+    assert.equal(row.status,'Pending Review');
+    assert.equal(row.details.start_evidence.verdict,'Location Exception');
+    assert.equal(row.details.end_evidence.accuracy_meters,12);
+    assert.equal(row.details.end_evidence.raw,undefined);
     assert.equal((await db.query("select public.read_sales_field($1,'attendance_session') as data",[o1]))
-      .rows[0].data.rows[0].status,'Pending Review');
+      .rows[0].data.rows[0].details.end_evidence.raw,undefined);
+    await assert.rejects(db.query('select private.expire_employee_gps()'),{code:'42501'});
+    await assert.rejects(db.query('select * from private.employee_gps_evidence'),{code:'42501'});
+    await db.exec('reset role');
+    const storedGps=await db.query(`select count(*)::int as count,
+      bool_and(g.expires_at=r.ended_at+interval '2160 hours') as expires_on_time,
+      bool_and(r.details#>'{end_evidence,raw}' is null) as summary_has_no_raw
+      from private.employee_gps_evidence g join private.sales_field_records r
+      on (r.organization_id,r.id)=(g.organization_id,g.record_id) where g.record_id=$1`,[punch.id]);
+    assert.deepEqual(storedGps.rows[0],{count:1,expires_on_time:true,summary_has_no_raw:true});
+    assert.equal((await db.query('select private.expire_employee_gps() as count')).rows[0].count,0);
+    await db.query('update private.employee_gps_evidence set expires_at=now() where record_id=$1',[punch.id]);
+    assert.equal((await db.query('select private.expire_employee_gps() as count')).rows[0].count,1);
+    await db.exec('set role authenticated');
+    assert.equal((await fieldRead('attendance_session')).rows[0].details.end_evidence.accuracy_meters,12);
+    await assert.rejects(fieldRead('attendance_session',{},o2),{code:'42501'});
+    const settings=await fieldRead('settings');
+    assert.equal(settings.radius,500);
+    await fieldAction('settings','save',{...settings,radius:600});
+    assert.equal((await fieldRead('settings')).radius,600);
+    await assert.rejects(fieldAction('settings','save',settings),{code:'PT409'});
     const leadRead = (query={},id=null,org=o1) => db.query('select public.read_lead_management($1,$2,$3) as result',[org,query,id])
       .then(result => result.rows[0].result);
     const leadCommand = (action,input,key=crypto.randomUUID()) =>
@@ -434,10 +467,85 @@ test('foundation enforces tenant, owner, membership and mutation boundaries', as
     const scheduledDetail=await leadRead({},metricsLead.id);
     assert.equal(scheduledDetail.timeline.filter(e=>e.kind==='Demo scheduled').length,1);
     assert.equal((await leadRead({search:'Synthetic console demo'})).rows[0].demo_at!==null,true);
+    const dailyReport=(member,day)=>db.query('select public.field_report($1,$2,$3) as report',[o1,member,day])
+      .then(result=>result.rows[0].report);
+    const day=(await db.query("select (now() at time zone 'Asia/Kolkata')::date::text as day")).rows[0].day;
+    const dueDay=new Date(Date.now()+8*86_400_000).toISOString().slice(0,10);
+    const demoInput={title:'Synthetic return reminder',parent_id:west.id,details:{return_on:dueDay}};
+    const demoKey=crypto.randomUUID();
+    const demo=await fieldWrite('demo','create',demoKey,demoInput);
+    assert.deepEqual(await fieldWrite('demo','create',demoKey,demoInput),demo);
+    await db.exec('reset role');
+    await db.query('update public.resources set owner_membership_id=$1 where (organization_id,id)=($2,$3)',[masterOwner,o1,opportunity]);
+    await db.exec('set role authenticated');
+    const payment=await fieldWrite('financial_reference','create',crypto.randomUUID(),{
+      title:'Synthetic payment milestone',parent_id:opportunity,
+      details:{type:'Invoice',number:'FIELD-PAYMENT-1',source:'Synthetic reference',document_on:day,due_on:dueDay,amount:'250.00'},
+    });
+    const automated=(await fieldRead('task')).rows;
+    assert.equal(automated.filter(item=>item.parent_id===demo.id&&item.details.task_type==='Product Demonstration').length,1);
+    assert.equal(automated.filter(item=>item.parent_id===payment.id&&item.details.task_type==='Payment Follow-up').length,1);
+    const updatedPolicy=await fieldRead('settings');
+    await fieldAction('settings','save',{...updatedPolicy,automation:{...updatedPolicy.automation,demo:false}});
+    const quiet=await fieldWrite('demo','create',crypto.randomUUID(),{...demoInput,title:'Synthetic disabled reminder'});
+    assert.equal((await fieldRead('task')).rows.some(item=>item.parent_id===quiet.id),false);
+    const reportRole=crypto.randomUUID(), repSession=crypto.randomUUID();
+    await db.exec(`reset role;
+      insert into auth.sessions(id,user_id,aal) values ('${repSession}','${u3}','aal1');
+      insert into public.roles(id,organization_id,code,name) values ('${reportRole}','${o1}','field_fixture','Synthetic field user');
+      insert into public.role_permissions select '${o1}','${reportRole}',code from public.permissions
+        where code in ('attendance_session.read','attendance_session.create','visit.read','visit.create','visit.update','task.read');
+      insert into public.member_roles(organization_id,membership_id,role_id,effective_from)
+        values ('${o1}','${m3}','${reportRole}',now());
+      set role authenticated;
+      select set_config('request.jwt.claim.sub','${u3}',false);
+      select set_config('request.jwt.claims','{"aal":"aal1","session_id":"${repSession}"}',false);`);
+    assert.deepEqual((await fieldRead('attendance_session')).rows,[]);
+    assert.deepEqual((await fieldRead('attendance_session')).team,[]);
+    await assert.rejects(fieldRead('settings'),{code:'42501'});
+    await assert.rejects(dailyReport(masterOwner,day),{code:'42501'});
+    const correction=await fieldAction('attendance_session','correction',{day,status:'Work From Home',reason:'Synthetic remote shift'});
+    await assert.rejects(fieldAction('attendance_session','review',{id:correction.id,status:'Approved',reason:'Self review'}),{code:'42501'});
+    const temporaryVisit=await fieldAction('visit','start',{title:'Synthetic Provisional Customer',
+      purpose:'New Customer Introduction',provisional:true,exception:'Synthetic indoor exception'});
+    const temporary=(await fieldRead('visit')).rows.find(row=>row.id===temporaryVisit.id);
+    await assert.rejects(fieldAction('visit','verify_customer',{id:temporary.account_id}),{code:'42501'});
+    await fieldAction('visit','finish',{id:temporaryVisit.id,version:temporary.version,outcome:'No Decision',exception:'Synthetic checkout exception'});
+    await assert.rejects(fieldAction('visit','review_location',{id:temporaryVisit.id,version:2,status:'Approved',reason:'Self review'}),{code:'42501'});
+    await assert.rejects(db.query("select public.reserve_file_stage($1,$2,$3,'Synthetic visit.pdf','business_document','application/pdf',50)",
+      [o1,temporaryVisit.id,crypto.randomUUID()]),{code:'42501'});
+    await db.exec(`select set_config('request.jwt.claim.sub','${u2}',false);
+      select set_config('request.jwt.claims','{"aal":"aal1","session_id":"${adminSession}"}',false);`);
+    const beforeVerify=await customerRead({},temporary.account_id);
+    await fieldAction('visit','verify_customer',{id:temporary.account_id});
+    const verified=await customerRead({},temporary.account_id);
+    assert.equal(verified.details.is_provisional,'false');
+    assert.equal(verified.version,beforeVerify.version+1);
+    await fieldAction('visit','review_location',{id:temporaryVisit.id,version:2,status:'Approved',reason:'Synthetic review confirmed'});
+    assert.equal((await fieldRead('visit')).rows.find(item=>item.id===temporaryVisit.id).details.location_review.reason,'Synthetic review confirmed');
+    const adminVisit=await fieldAction('visit','start',{title:'Synthetic visit for attachments',purpose:'Other',
+      account:temporary.account_id,exception:'Indoor example'});
+    assert.ok((await db.query("select public.reserve_file_stage($1,$2,$3,'Synthetic visit.pdf','business_document','application/pdf',50) as id",
+      [o1,adminVisit.id,crypto.randomUUID()])).rows[0].id);
+    assert.equal((await db.query('select status from public.crm_record_files($1,$2,0)',[o1,adminVisit.id])).rows[0].status,'Pending upload');
+    await fieldAction('attendance_session','review',{id:correction.id,status:'Approved',reason:'Checked with the supervisor'});
+    assert.equal((await fieldRead('attendance_session')).corrections.find(entry=>entry.id===correction.id).status,'Approved');
+    await fieldAction('visit','acknowledge',{owner:m3,day,reason:'Synthetic manager feedback'});
+    assert.equal((await dailyReport(m3,day)).review.feedback,'Synthetic manager feedback');
+    const outreach=(await fieldRead('task',{lead:metricsLead.id})).rows.filter(entry=>entry.details.task_type==='Customer Call');
+    assert.equal(outreach.length,1);
+    const firstFollowup=await leadCommand('stage',{id:metricsLead.id,version:scheduled.version,stage:'demo_requested',
+      next_action:'Confirm device trial',follow_up:new Date(Date.now()+86_400_000).toISOString()});
+    const changedFollowup={id:metricsLead.id,version:firstFollowup.version,stage:'demo_requested',
+      next_action:'Confirm device trial',follow_up:new Date(Date.now()+2*86_400_000).toISOString()};
+    await assert.rejects(leadCommand('stage',changedFollowup),/reschedule reason/i);
+    await leadCommand('stage',{...changedFollowup,reschedule_reason:'Hospital requested a later call'});
+    assert.ok((await leadRead({},metricsLead.id)).timeline.some(entry=>entry.details?.summary==='Hospital requested a later call'));
     const readPolicy = organization => db.query('select public.read_operating_policy_settings($1) as settings', [organization]);
     assert.equal((await readPolicy(o1)).rows[0].settings.expense, null, 'a live email/password session can read admin settings');
     await assert.rejects(readPolicy(o2), {code:'42501'});
     await db.exec(`reset role; update auth.sessions set not_after=now() - interval '1 day' where id='${adminSession}'; set role authenticated;`);
     await assert.rejects(readPolicy(o1), {code:'42501'});
+    await assert.rejects(fieldRead('attendance_session'), {code:'42501'});
   } finally { await db.close(); }
 });

@@ -46,6 +46,7 @@ const settings: Record<SalesFieldKind, FieldConfig> = {
   demo: { title: 'Demonstrations', action: 'Log a demonstration', titleLabel: 'Demonstration subject', parent: 'Customer or opportunity', inputs: [
     { name: 'occurred_on', label: 'Demonstration date', type: 'date', required: true }, { name: 'product_summary', label: 'Products demonstrated' },
     { name: 'outcome', label: 'Outcome', required: true }, { name: 'next_action', label: 'Next action' },
+    { name: 'return_on', label: 'Equipment return date', type: 'date' },
   ] },
   target: { title: 'Sales Targets', action: 'Set a personal sales target', titleLabel: 'Target period or label', inputs: [
     { name: 'from_date', label: 'Period start', type: 'date', required: true }, { name: 'through_date', label: 'Period end', type: 'date', required: true },

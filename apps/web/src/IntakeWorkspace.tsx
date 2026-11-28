@@ -14,6 +14,8 @@ import { SalesField, type SalesFieldKind } from './SalesField';
 import { AviIcon } from './AviIcon';
 import type { LeadConsoleMetrics } from './leadModel';
 import {userManagementEnabled} from './workspaceFeatures';
+import { FieldOperations } from './FieldOperations';
+import type { FieldKind } from './fieldModel';
 import { RecordSearch } from './RecordSearch';
 
 type Screen = 'home' | 'accounts' | 'leads' | 'opportunities' | 'administration' | 'settings' | 'distributors' | 'reports' | 'tenders' | 'expenses' | SalesFieldKind;
@@ -53,17 +55,18 @@ const moduleForScreen:Partial<Record<Screen,string>>={
   financial_reference:'orders',demo:'demonstrations',tenders:'tenders',expenses:'expenses',target:'targets',reports:'reports',
 };
 
-const routes:Partial<Record<Screen,string>>={home:'dashboard',accounts:'customers',contact:'contacts',site:'customer-sites',administration:'users'};
+const routes:Partial<Record<Screen,string>>={home:'dashboard',accounts:'customers',contact:'contacts',site:'customer-sites',administration:'users',attendance_session:'attendance',visit_plan:'visit-planner',visit:'field-visits',task:'tasks'};
+const fieldScreens = new Set<Screen>(['attendance_session','visit_plan','visit','task']);
 function readRoute():{screen:Screen;customerTab:'accounts'|'site'|'contact';name:string} {
   const [,slug,detail]=window.location.pathname.split('/');
-  const saved=navigation.find(item=>(routes[item.id]??item.id)===slug)?.id ?? 'home';
+  const saved=navigation.find(item=>(routes[item.id]??item.id)===slug||item.id===slug)?.id ?? 'home';
   const customerTab=slug==='contacts'||detail==='contacts'?'contact':slug==='customer-sites'||detail==='sites'?'site':'accounts';
   return {screen:['hospitals','accounts','contacts','customer-sites','distributors'].includes(slug)?'accounts':saved,
-    customerTab,name:saved==='leads'&&detail&&/^[0-9a-f-]{36}$/i.test(detail)?detail:''};
+    customerTab,name:(saved==='leads'||saved==='visit')&&detail&&/^[0-9a-f-]{36}$/i.test(detail)?detail:''};
 }
 function routePath(screen:Screen,name:string,destination:Screen) {
   if(screen==='accounts'&&(destination==='contact'||destination==='site'))return '/customers/'+(destination==='contact'?'contacts':'sites');
-  return '/'+(routes[screen]??screen)+(screen==='leads'&&/^[0-9a-f-]{36}$/i.test(name)?'/'+name:'');
+  return '/'+(routes[screen]??screen)+((screen==='leads'||screen==='visit')&&/^[0-9a-f-]{36}$/i.test(name)?'/'+name:'');
 }
 
 export function IntakeWorkspace({ db, memberships, signOut, busy }: {
@@ -258,7 +261,9 @@ export function IntakeWorkspace({ db, memberships, signOut, busy }: {
             canReadOpportunities={permissions.has('opportunity.read')}/>:
           <section className="panel"><h1>Reports</h1><p>Your lead and opportunity permissions determine which reports are available.</p></section>)}
         {selected?.salesField && selected.permission && permissions?.has(selected.permission)
-          && <SalesField key={organization + screen} db={db} organization={organization} kind={screen as SalesFieldKind} />}
+          && (fieldScreens.has(screen) ? <FieldOperations key={organization+screen+initialName} db={db} org={organization}
+            kind={screen as FieldKind} initialPlan={screen==='visit'?initialName:undefined} onPlan={id=>go('visit',id)} openLead={id=>go('leads',id)}/>
+            : <SalesField key={organization + screen} db={db} organization={organization} kind={screen as SalesFieldKind} />)}
         {screen === 'opportunities' && <><h1>{title}</h1><OpportunityList key={organization} db={db} organization={organization} /></>}
         {screen === 'leads' && current && permissions?.has('lead.read') && <LeadWorkspace
           key={organization+initialName+initialView} db={db} organization={organization} membership={current.id} canEditOwn={permissions.has('lead.contact')} canConvertOwn={permissions.has('lead.convert')} metrics={consoleMetrics} metricsError={summaryError} refreshMetrics={refreshSummary} notificationsOpen={notificationOpen} closeNotifications={()=>setNotificationOpen(false)} initialName={initialName} initialView={initialView} />}

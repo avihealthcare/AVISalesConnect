@@ -194,3 +194,15 @@ The disposable Auth/API/Storage test passed, the migration reset and database se
 ## 2026-11-28 — Approved hosted User Management activation
 
 The user explicitly approved the live role, password setup and session changes. Hosted Supabase applied `20261128063040_pilot_user_management` and activated the `admin-users` Edge endpoint with JWT verification. The Netlify build enables User Management. The synthetic Chrome workflow verifies administrator provisioning, module-scoped access, first-login password setup, resetting a password and direct lead access denial on the disposable stack.
+
+### 2026-11-28 — Field Operations
+
+Implemented the four routed Field Operations workspaces for Milestone 3. Attendance has event-only GPS punches, a live shift timer, monthly history, corrections, and independent manager review. The planner has day, week and list views and can open today's plans for check-in. Field visits support server-side location checks, provisional customers, structured reports, multiple linked leads, private attachments and on-demand Daily Sales Reports. Tasks support scoped personal and team views, a reschedule audit trail, and idempotent cross-module reminders. Customer and lead detail link back to their field records. Field settings preserve the requested 500 m default and enable each automation independently.
+
+Verified locally with disposable synthetic data. `npm run check` passed all 16 Node tests and the production build. Database coverage includes cross-organization reads, current sessions, settings and write versions, GPS exception handling, review separation, provisional customer verification, quarantine reservation, lead follow-up audit, and automated assignment, visit, demo, payment and tender tasks. Local Supabase reset and security advisor passed. The Playwright suite passed 10 browser tests across desktop, tablet and phone, including the Field Operations workflow on each size and the existing intake, expenses and administrator sign-in flows. Eight cases were skipped according to their device or optional Edge-service requirements.
+
+GitHub and the live pilot were not changed in this increment. Hosted release still needs the SEC-08 employee GPS retention approval and hosted verification of access and attachment scanning. Physical device GPS remains unverified.
+
+The user approved 90-day employee GPS retention and the hosted Field Operations release. Supabase applied both Field Operations and the GPS retention migration on the AVI pilot. The retention migration removes expired precise coordinates while retaining the attendance and visit summaries. The local production build, 16 automated tests and the Supabase security advisor passed. Hosted and repository migration versions match.
+
+Hosted Supabase confirmed the GPS cleanup runs every minute, its latest run succeeded, and zero expired coordinate rows remained. The three Field Operations browser tests passed locally on desktop, tablet, and phone.

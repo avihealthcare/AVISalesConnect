@@ -617,6 +617,10 @@ export type Database = {
         Args: { p_org: string; p_action: string; p_key: string; p_input: Json };
         Returns: Json;
       };
+      field_workspace: { Args:{p_org:string;p_kind:string;p_query?:Json};Returns:Json };
+      field_reference_data: { Args:{p_org:string;p_mode:string;p_account?:string|null;p_search?:string};Returns:Json };
+      field_command: { Args:{p_org:string;p_kind:string;p_action:string;p_key:string;p_body:Json};Returns:Json };
+      field_report: { Args:{p_org:string;p_member:string|null;p_day:string};Returns:Json };
       read_sales_field: {
         Args: { p_org: string; p_kind: string; p_offset?: number };
         Returns: Json;

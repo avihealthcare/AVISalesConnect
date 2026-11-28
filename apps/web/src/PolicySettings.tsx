@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '../../../packages/domain/database.types';
 
+import { FieldSettings } from './FieldSettings';
+
 type Section = 'expense' | 'tender';
 type ExpenseRule = {
   category: string; grade: string; geography: string; travel_type: string;
@@ -36,7 +38,7 @@ export function PolicySettings({ db, organization }: { db: SupabaseClient<Databa
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [reload, setReload] = useState(0);
-  const [section, setSection] = useState<Section>('expense');
+  const [section, setSection] = useState<Section|'field'>('expense');
 
   useEffect(() => {
     let current = true;
@@ -60,8 +62,9 @@ export function PolicySettings({ db, organization }: { db: SupabaseClient<Databa
     <div className="settings-tabs" aria-label="Policy sections">
       {(Object.keys(sections) as Section[]).map(key => <button key={key} className="secondary"
         aria-pressed={section === key} onClick={() => setSection(key)}>{sections[key]}</button>)}
+      <button className="secondary" aria-pressed={section==='field'} onClick={()=>setSection('field')}>Field Operations</button>
     </div>
-    {loadError ? <p role="alert">Policy settings are unavailable. <button className="link"
+    {section==='field' ? <FieldSettings db={db} organization={organization}/> : loadError ? <p role="alert">Policy settings are unavailable. <button className="link"
       onClick={() => { setLoadError(false); setReload(value => value + 1); }}>Retry</button></p>
       : snapshot ? <PolicyEditor key={section + (snapshot[section]?.id ?? '')} section={section}
         latest={snapshot[section]} today={snapshot.today} currency={snapshot.currency} staff={staff}

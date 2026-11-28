@@ -22,3 +22,11 @@ Leads now opens the table or Kanban workspace, with filtered queues and record d
 Leads → Add New Lead offers Manual Entry and Scan Visiting Card. Tesseract.js reads the prepared card images in the browser using assets served by SalesConnect. On save, the authenticated `POST /functions/v1/scan-visiting-card` endpoint accepts the original front and optional back as multipart files, with the organization in `x-avi-organization` and `upload` in `x-avi-card-action`. The Leads Documents tab lists retained card sides.
 
 The CRM resolves `/customers`, `/customers/sites` and `/customers/contacts` to the Customers module. Legacy customer navigation aliases resolve to the same workspace. `/leads/{id}` loads a directly linked record through the lead visibility command. `/users` is limited to organization administrators. The signed-in workspace checks module access before rendering direct routes. `admin-users` is the Supabase Edge endpoint for POST creation and PATCH access, activation and password changes.
+
+### Field Operations
+
+- `/attendance` shows the current working day, monthly history and correction requests.
+- `/visit-planner` shows day, week and list views. Today's plans can open `/field-visits/:planId` for check-in.
+- `/field-visits` shows visits, meeting reports and Daily Sales Reports.
+- `/tasks` shows personal and scoped team follow-ups.
+- `/settings` includes the Field Operations policy. Customer 360° and lead detail show scoped linked field records.
